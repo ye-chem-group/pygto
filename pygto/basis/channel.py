@@ -33,6 +33,23 @@ class Channel:
         exponents = exponents_from_pyscf_basis_by_l(basis, l, repeat_thr)
         return cls(l, exponents)
 
+    def convert_to(self, channel_type):
+        ''' Convert a copy of current Channel into specified channel type
+        '''
+        ct = channel_type
+        if not isinstance(ct, str):
+            raise TypeError('Channel type must be str.')
+
+        ct = ct.lower()
+        if ct == 'etb':
+            new = ETB(self.l, self.exponents)
+        elif ct == 'full':
+            new = Full(self.l, self.exponents)
+        else:
+            raise TypeError('Unknown channel type. Acceptable values are "etb" and "full".')
+
+        return new
+
     def __repr__(self):
         return f'{self.__class__.__name__}({self.structure})'
 

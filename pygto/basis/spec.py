@@ -2,10 +2,11 @@ import sys
 import numpy as np
 
 from pygto.basis.channel import ETB, Full
+from pygto.lib import StreamObject
 
 
 
-class BasisSpec:
+class BasisSpec(StreamObject):
     ''' BasisSpec is a collection of channels equipped with methods that operate on these channels. Each channel has a definite angular momentum (`channel.l`) and the basis parameters for a subset of primitives of that angular momentum. Note that multiple channels can have the same angular momentum, and therefore:
 
             # of channels  ≥  # of angular momentum channels
@@ -53,6 +54,34 @@ class BasisSpec:
                 channels.append( c )
 
         return cls(channels)
+
+    def convert_to(self, channel_type):
+        ''' Convert a copy of current BasisSpec into specified channel type(s).
+        '''
+        new = self.copy()
+        new.convert_to_(channel_type)
+        return new
+
+    def convert_to_(self, channel_type):
+        ''' Convert current BasisSpec in place into specified channel type(s).
+        '''
+        if isinstance(channel_type, str):
+            channel_type = [channel_type] * self.nchannel
+        elif isinstance(channel_type, (list,tuple)):
+            if len(channel_type) != self.nchannel:
+                raise ValueError('Length of `channel_type` does not match `nchannel` (%d != %d)'
+                                 % (len(channel_type), self.nchannel))
+            if not all([isinstance(c, str) for c in channel_type]):
+                raise TypeError('All elements in `channel_type` must be str.')
+        else:
+            raise TypeError('`channel_type` must be str of list/tuple of str.')
+
+        self.channels = [
+            c.convert_to(ct)
+            for ct, c in zip(channel_type, self.channels)
+        ]
+
+        return self
 
     def __repr__(self):
         return f'BasisSpec({self.structure})'
