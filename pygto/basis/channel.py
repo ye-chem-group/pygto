@@ -22,6 +22,10 @@ class Channel:
     def __init__(self, l, exponents):
         self.l = int(l)
         self.n = len(exponents)
+
+        if any([e <= 0. for e in exponents]):
+            raise ValueError('Exponents must be strictly positive.')
+
         self._parameters = self.exponents_to_parameters(exponents)
 
     @classmethod
@@ -257,21 +261,59 @@ class ETB(Channel):
 
 
 def exponents_to_ETB(exponents):
-    ''' Converting exponents to ETB parameters: `amin` and `beta`
+    ''' Convert exponents to ETB parameters: n, amin, and beta
     '''
     exponents = np.asarray(exponents)
     n = len(exponents)
     if n <= 0:
         raise RuntimeError
 
-    amin = exponents.min()
+    exponents = np.sort(exponents)
+
     if n == 1:
+        amin = exponents[0]
         beta = 1
     else:
-        amax = exponents.max()
-        beta = np.exp(np.log(amax/amin) / (n-1))
+        try:
+            amin, beta = _fit_ETB_lstsq(exponents)
+        except Exception as e:
+            print(f'Least-square fit of ETB failed with {type(e).__name__}. '
+                  'Switching to min-max fit', flush=True)
+            amin, beta = _fit_ETB_minmax(exponents)
 
     return n, amin, beta
+
+def _fit_ETB_minmax(exponents):
+    ''' Choose ETB parameters such that
+            - amin = min(exponents)
+            - amax = amin * beta**(n-1) = max(exponents)
+    '''
+    n = len(exponents)
+    amin = np.min(exponents)
+    amax = np.max(exponents)
+    beta = np.exp(np.log(amax/amin) / (n-1))
+    return amin, beta
+
+def _fit_ETB_lstsq(exponents):
+    ''' Choose ETB parameters to minimize 2-norm error against exponents.
+    '''
+    exponents = np.sort(exponents)
+    n = len(exponents)
+
+    rn = np.arange(n)
+    a = np.asarray([
+        [n, rn.sum()],
+        [rn.sum(), (rn**2).sum()]
+    ])
+    loge = np.log(exponents)
+    b = np.asarray([
+        loge.sum(), (loge*rn).sum()
+    ])
+    x = np.linalg.solve(a, b)
+    amin, beta = np.exp(x)
+
+    return amin, beta
+
 
 def ETB_to_exponents(n, amin, beta):
     ''' Generate exponents from ETB parameters. For `n = 1`, `beta` is ignored.
