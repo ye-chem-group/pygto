@@ -53,6 +53,9 @@ class Optimizer(StreamObject):
         elif accuracy == 'high':
             self.ftol = 1e-9
             self.xtol = 1e-3
+        elif accuracy == 'ultra':
+            self.ftol = 1e-10
+            self.xtol = 1e-4
         else:
             raise ValueError('Unknown accuracy "%s"' % accuracy)
         self.gtol = self.ftol**0.5
