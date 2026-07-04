@@ -1,8 +1,10 @@
 import sys
 import numpy as np
 
+from pygto.lib import StreamObject
 
-class Optimizer:
+
+class Optimizer(StreamObject):
     ''' Base class for PyGTO optimizers.
 
         Subclasses should implement `next_step`, which updates at least
@@ -55,15 +57,6 @@ class Optimizer:
             raise ValueError('Unknown accuracy "%s"' % accuracy)
         self.gtol = self.ftol**0.5
         self._accuracy = accuracy
-
-    def set(self, **kwargs):
-        for key, val in kwargs.items():
-            if not hasattr(self, key):
-                raise AttributeError(
-                    '%s has no attribute "%s"' % (self.__class__.__name__, key)
-                )
-            setattr(self, key, val)
-        return self
 
     def get_cost(self, spec):
         return float(self.cost_func(spec))
@@ -121,11 +114,11 @@ class Optimizer:
         return False
 
     def dump_flags(self):
-        self.log('Optimizer= %s' % self.__class__.__name__)
-        self.log('ftol= %.3e' % self.ftol)
-        self.log('xtol= %.3e' % self.xtol)
-        self.log('gtol= %.3e' % self.gtol)
-        self.log('max_cycle= %d' % self.max_cycle)
+        self.log_info('Optimizer= %s' % self.__class__.__name__)
+        self.log_info('ftol= %.3e' % self.ftol)
+        self.log_info('xtol= %.3e' % self.xtol)
+        self.log_info('gtol= %.3e' % self.gtol)
+        self.log_info('max_cycle= %d' % self.max_cycle)
 
     def kernel(self, **kwargs):
         self.set(**kwargs)
@@ -181,17 +174,17 @@ class Optimizer:
         self.history.append(data)
 
     def print_init(self):
-        self.log('init cost= %.12f' % self.cost)
+        self.log_info('init cost= %.12f' % self.cost)
 
     def print_step(self, df, dx):
         if self.gradient is None:
-            self.log(
+            self.log_info(
                 'cycle= %4d  cost= %.12f  df= % .2e  dx= % .2e  stat= %s'
                 % (self.cycle, self.cost, df, dx, self.status)
             )
         else:
             gmax = np.max(np.abs(self.gradient))
-            self.log(
+            self.log_info(
                 'cycle= %4d  cost= %.12f  df= % .2e  dx= % .2e  '
                 '|g|= %.2e  stat= %s'
                 % (self.cycle, self.cost, df, dx, gmax, self.status)
@@ -199,14 +192,10 @@ class Optimizer:
 
     def print_final(self):
         if self.converged:
-            self.log('Convergence is reached')
+            self.log_note('Convergence is reached')
         else:
-            self.log('Convergence is not reached: %s' % self.stop_reason)
-        self.log('Final cost= %.12f' % self.cost)
-
-    def log(self, msg, level=4):
-        if self.verbose >= level:
-            print(msg, file=sys.stdout)
+            self.log_warn('Convergence is not reached: %s' % self.stop_reason)
+        self.log_note('Final cost= %.12f' % self.cost)
 
 
 if __name__ == '__main__':

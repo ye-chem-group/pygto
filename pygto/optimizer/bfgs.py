@@ -28,15 +28,15 @@ class BFGS(Optimizer):
 
     def dump_flags(self):
         Optimizer.dump_flags(self)
-        self.log('grad_func= %s' % ('None' if self.grad_func is None else 'user'))
-        self.log('memory= %d' % self.memory)
-        self.log('max_step= %.3e' % self.max_step)
-        self.log('armijo_c1= %.3e' % self.armijo_c1)
-        self.log('step_min= %.3e' % self.step_min)
-        self.log('max_backtracks= %d' % self.max_backtracks)
-        self.log('curvature_tol= %.3e' % self.curvature_tol)
-        self.log('grad_abs_step= %.3e' % self.grad_abs_step)
-        self.log('grad_rel_step= %.3e' % self.grad_rel_step)
+        self.log_info('grad_func= %s' % ('None' if self.grad_func is None else 'user'))
+        self.log_info('memory= %d' % self.memory)
+        self.log_info('max_step= %.3e' % self.max_step)
+        self.log_info('armijo_c1= %.3e' % self.armijo_c1)
+        self.log_info('step_min= %.3e' % self.step_min)
+        self.log_info('max_backtracks= %d' % self.max_backtracks)
+        self.log_info('curvature_tol= %.3e' % self.curvature_tol)
+        self.log_info('grad_abs_step= %.3e' % self.grad_abs_step)
+        self.log_info('grad_rel_step= %.3e' % self.grad_rel_step)
 
     def initialize(self):
         super().initialize()
@@ -107,7 +107,7 @@ class BFGS(Optimizer):
         p = -r
         gp = np.dot(g, p)
         if gp >= 0 or not np.isfinite(gp):
-            self.log('BFGS direction is not descent. Resetting history.')
+            self.log_warn('BFGS direction is not descent. Resetting history.')
             self.s_list = []
             self.y_list = []
             self.rho_list = []
@@ -149,7 +149,7 @@ class BFGS(Optimizer):
                 break
 
         if not accepted:
-            self.log('Line search failed. Keeping current parameters.')
+            self.log_warn('Line search failed. Keeping current parameters.')
             self.s_list = []
             self.y_list = []
             self.rho_list = []
@@ -177,6 +177,6 @@ class BFGS(Optimizer):
             y_list.append(y)
             rho_list.append(1.0 / sy)
         else:
-            self.log('Skipping BFGS update due to poor curvature condition.')
+            self.log_warn('Skipping BFGS update due to poor curvature condition.')
 
         self.status = 'accepted'

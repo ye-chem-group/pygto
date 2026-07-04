@@ -25,14 +25,14 @@ class NelderMead(Optimizer):
 
     def dump_flags(self):
         Optimizer.dump_flags(self)
-        self.log('initial_step_abs= %.3e' % self.initial_step_abs)
-        self.log('initial_step_rel= %.3e' % self.initial_step_rel)
-        self.log('reflection= %.3e' % self.reflection)
-        self.log('expansion= %.3e' % self.expansion)
-        self.log('contraction= %.3e' % self.contraction)
-        self.log('shrink= %.3e' % self.shrink)
-        self.log('simplex_spread_tol= %.3e' % self.simplex_spread_tol)
-        self.log('max_inner= %d' % self.max_inner)
+        self.log_info('initial_step_abs= %.3e' % self.initial_step_abs)
+        self.log_info('initial_step_rel= %.3e' % self.initial_step_rel)
+        self.log_info('reflection= %.3e' % self.reflection)
+        self.log_info('expansion= %.3e' % self.expansion)
+        self.log_info('contraction= %.3e' % self.contraction)
+        self.log_info('shrink= %.3e' % self.shrink)
+        self.log_info('simplex_spread_tol= %.3e' % self.simplex_spread_tol)
+        self.log_info('max_inner= %d' % self.max_inner)
 
     def initialize(self):
         super().initialize()
