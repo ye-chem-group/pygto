@@ -13,10 +13,17 @@ class BasisSpec:
         This can be useful, e.g., separating the occupied 2p orbitals from the unoccupied 3p orbitals in Na and Mg, which in turn allow different optimization schemes to be applied to the corresponding parameters.
     '''
 
+    _keys = {
+        'active_channel'
+    }
+
     def __init__(self, channels):
 
-        # attribute
+        # attribute from initialization
         self.channels = channels
+
+        # attribute with default
+        self._active_channel = None
 
     @classmethod
     def init_from_pyscf_basis(cls, basis, channel_type, repeat_thr=1.01, keep_l=None):
@@ -55,17 +62,20 @@ class BasisSpec:
     def nparam(self):
         ''' Return total number of parameters to be optimized
         '''
-        return sum([c.nparam for c in self.channels])
+        mask = self.get_active_mask()
+        return sum([c.nparam for c,m in zip(self.channels,mask) if m])
 
     @property
     def param_loc(self):
-        return np.cumsum([0] + [c.nparam for c in self.channels]).astype(int)
+        mask = self.get_active_mask()
+        return np.cumsum([0] + [c.nparam for c,m in zip(self.channels,mask) if m]).astype(int)
 
     @property
     def parameters(self):
         if not self.channels:
             return np.asarray([], dtype=float)
-        return np.hstack([c.parameters for c in self.channels])
+        mask = self.get_active_mask()
+        return np.hstack([c.parameters for c,m in zip(self.channels,mask) if m])
 
     @parameters.setter
     def parameters(self, value):
@@ -77,16 +87,19 @@ class BasisSpec:
                 'Expected %d parameters, got %d' % (self.nparam, value.size)
             )
 
+        active_channel_idx = np.where(self.get_active_mask())[0]
         loc = self.param_loc
         for i,(i0,i1) in enumerate(zip(loc[:-1], loc[1:])):
-            self.channels[i].parameters = value[i0:i1]
+            idx = active_channel_idx[i]
+            self.channels[idx].parameters = value[i0:i1]
 
     @property
     def convergence_parameters(self):
         ''' Parameters for the optimizer to calculate ∆x to check convergence,
             chosen to be log(exponents)
         '''
-        return np.hstack([c.convergence_parameters for c in self.channels])
+        mask = self.get_active_mask()
+        return np.hstack([c.convergence_parameters for c,m in zip(self.channels,mask) if m])
 
     def parameter_jacobian(self):
         ''' Return d(physical parameters) / d(parameters).
@@ -99,6 +112,78 @@ class BasisSpec:
         spec = self.copy()
         spec.parameters = value
         return spec
+
+    @property
+    def active_channel(self):
+        return self._active_channel
+
+    @active_channel.setter
+    def active_channel(self, value):
+        self.set_active_channel(value)
+
+    @property
+    def active_l(self):
+        if self.active_channel is None:
+            return None
+        return sorted(list(set([self.channels[i].l for i in self.active_channel])))
+
+    @active_l.setter
+    def active_l(self, value):
+        raise RuntimeError('Please use `set_active_l` for setting active angular momenta.')
+
+    def set_active_channel(self, active_channel=None):
+        ''' Set active channels by channel index.
+            Use `None` to reset and activate all channels.
+        '''
+        if active_channel is None:
+            self._active_channel = None  # reset and activate all channels
+            return
+
+        active_channel = _to_int_list(active_channel)
+
+        if len(active_channel) == 0:
+            raise ValueError('Channel index must not be empty.')
+
+        if not set(active_channel).issubset(set(range(self.nchannel))):
+            raise ValueError('Channel index out of range.')
+
+        self._active_channel = sorted(list(set(active_channel)))
+
+    def set_active_l(self, active_l=None):
+        ''' Set active channels by angular momentum.
+            Use `None` to reset and activate all channels.
+        '''
+        if active_l is None:
+            self._active_channel = None  # reset and activate all channels
+            return
+
+        active_l = _to_int_list(active_l)
+
+        if len(active_l) == 0:
+            raise ValueError('Angular momenta must not be empty.')
+
+        if not set(active_l).issubset(set(self.angular_momenta)):
+            raise ValueError('Angular momenta out of range.')
+
+        active_l = sorted(list(set(active_l)))
+
+        self._active_channel = [i for i,c in enumerate(self.channels) if c.l in active_l]
+
+    def get_active_mask(self, active_channel=None):
+        ''' Return a boolean array specifying which channels are active.
+        '''
+        if active_channel is None:
+            active_channel = self._active_channel
+        else:
+            active_channel = _to_int_list(active_channel)
+
+        if active_channel is None:
+            mask = np.ones(self.nchannel, dtype=bool)
+        else:
+            mask = np.zeros(self.nchannel, dtype=bool)
+            mask[active_channel] = True
+
+        return mask
 
     # property
     @property
@@ -142,7 +227,10 @@ class BasisSpec:
 
     # method
     def copy(self):
-        return self.__class__([c.copy() for c in self.channels])
+        new = self.__class__([c.copy() for c in self.channels])
+        for k in self._keys:
+            setattr(new, k, getattr(self, k))
+        return new
 
     def merge_angular_momentum(self):
         ''' Merge channels of same angular momentum.
@@ -182,12 +270,14 @@ class BasisSpec:
         return self.__class__([*self.channels, *other.channels])
 
     def replace_channel(self, channel, channel_idx):
+        ''' Replace a specific channel by channel index
+        '''
         if channel_idx < 0 or channel_idx >= self.nchannel:
             raise IndexError('channel_idx out of range (0 ≤ channel_idx ≤ %d)'%(self.nchannel-1))
 
-        channels = [c.copy() for c in self.channels]
-        channels[channel_idx] = channel
-        return self.__class__(channels)
+        new = self.copy()
+        new.channels[channel_idx] = channel
+        return new
 
     def add_one_exponent_candidates(self, channel_idx, upscale=1.2, downscale=0.8, emin=0.01):
         ''' Return several new BasisSpec's with one exponent added to in a given chnanel
@@ -238,6 +328,23 @@ class BasisSpec:
 
     get_basis_str = get_basis_str_nwchem
     dump_basis = dump_basis_nwchem
+
+
+def _to_int_list(a):
+    Int = (int, np.int32, np.int64)
+    Iterable = (list, tuple, set, np.ndarray)
+
+    if isinstance(a, Int):
+        a = [a]
+    elif isinstance(a, Iterable):
+        if not all([isinstance(x, Int) for x in a]):
+            raise TypeError('Some/all elements are not Integer')
+        a = [int(x) for x in a]
+    else:
+        raise TypeError('Input must be either an Integer or a '
+                        'List/Tuple/Set/NumpyArray of Integer.')
+
+    return a
 
 
 if __name__ == '__main__':
