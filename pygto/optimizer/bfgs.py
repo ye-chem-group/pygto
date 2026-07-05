@@ -9,6 +9,8 @@ from pygto.optimizer.optimizer import Optimizer
 
 class BFGS(Optimizer):
 
+    support_grad = True
+
     def __init__(self, spec, cost_func, grad_func=None, verbose=4):
         super().__init__(spec, cost_func, verbose=verbose)
 

@@ -11,6 +11,8 @@ class Optimizer(StreamObject):
         `self.parameters`, `self.objective`, and `self.status`.
     '''
 
+    support_grad = False
+
     def __init__(self, spec, cost_func, verbose=4):
         self.spec = spec.copy()
         self.cost_func = cost_func
@@ -117,7 +119,8 @@ class Optimizer(StreamObject):
         return False
 
     def dump_flags(self):
-        self.log_info('Optimizer= %s' % self.__class__.__name__)
+        self.log_info('\n')
+        self.log_info('******** %s ********' % (self.__class__.__name__))
         self.log_info('ftol= %.3e' % self.ftol)
         self.log_info('xtol= %.3e' % self.xtol)
         self.log_info('gtol= %.3e' % self.gtol)
@@ -177,28 +180,42 @@ class Optimizer(StreamObject):
         self.history.append(data)
 
     def print_init(self):
-        self.log_info('init cost= %.12f' % self.cost)
+        self.log_info('')
+        self.log_info('Init basis:')
+        if self.verbose >= 4:   # info
+            self.spec.dump_basis(stdout=self.stdout)
+        self.log_info('')
+        self.log_info('Init cost= %.12f' % self.cost)
+        self.log_info('')
 
     def print_step(self, df, dx):
         if self.gradient is None:
             self.log_info(
-                'cycle= %4d  cost= %.12f  df= % .2e  dx= % .2e  stat= %s'
+                'cycle= %d  cost= %.12f  df= % .2e  dx= % .2e  stat= %s'
                 % (self.cycle, self.cost, df, dx, self.status)
             )
         else:
             gmax = np.max(np.abs(self.gradient))
             self.log_info(
-                'cycle= %4d  cost= %.12f  df= % .2e  dx= % .2e  '
+                'cycle= %d  cost= %.12f  df= % .2e  dx= % .2e  '
                 '|g|= %.2e  stat= %s'
                 % (self.cycle, self.cost, df, dx, gmax, self.status)
             )
 
     def print_final(self):
+        self.log_info('')
         if self.converged:
-            self.log_note('Convergence is reached')
+            self.log_note('Convergence is reached for %s' % (self.__class__.__name__))
         else:
-            self.log_warn('Convergence is not reached: %s' % self.stop_reason)
+            self.log_warn('Convergence is not reached for %s: %s' %
+                          (self.__class__.__name__, self.stop_reason))
+        self.log_info('')
+        self.log_info('Final basis:')
+        if self.verbose >= 4:   # info
+            self.spec.dump_basis(stdout=self.stdout)
+        self.log_info('')
         self.log_note('Final cost= %.12f' % self.cost)
+        self.log_note('')
 
 
 if __name__ == '__main__':

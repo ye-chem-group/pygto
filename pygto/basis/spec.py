@@ -348,12 +348,12 @@ class BasisSpec(StreamObject):
 
         return '\n'.join(s)
 
-    def dump_basis_nwchem(self, des=None, atm=None, header=True):
+    def dump_basis_nwchem(self, stdout=None, atm=None, header=True):
         ''' Print NWChem format basis string to given destination
         '''
         basis_str = self.get_basis_str_nwchem(atm=atm, header=header)
-        if des is None: des = sys.stdout
-        des.write(basis_str + '\n')
+        if stdout is None: stdout = self.stdout
+        stdout.write(basis_str + '\n')
 
     get_basis_str = get_basis_str_nwchem
     dump_basis = dump_basis_nwchem
