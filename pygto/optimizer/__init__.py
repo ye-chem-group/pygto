@@ -1,11 +1,11 @@
 from pygto.optimizer.bfgs import BFGS
 from pygto.optimizer.optimizer import Optimizer
 from pygto.optimizer.neldermead import NelderMead
-from pygto.optimizer.schedule import scheduled_optimize
+from pygto.optimizer.scheduled_optimizer import ScheduledOptimizer
 
 __all__ = [
     'BFGS',
     'NelderMead',
     'Optimizer',
-    'scheduled_optimize',
+    'ScheduledOptimizer',
 ]
