@@ -89,6 +89,12 @@ class BasisSpecTest(unittest.TestCase):
             with self.assertRaises(TypeError):
                 spec.set_active_channel(x)
 
+        # temporary
+        spec.set_active_channel()
+        with spec.temporary_active_channel([0,1]):
+            np.testing.assert_allclose( spec.get_active_mask(), np.array([True,True,False]) )
+        np.testing.assert_allclose( spec.get_active_mask(), np.array([True,True,True]) )
+
     def test_active_l(self):
         channels = [
             Full(0, [0.3, 0.9, 2.7]),
@@ -127,6 +133,12 @@ class BasisSpecTest(unittest.TestCase):
         for x in ['1', 1.0]:
             with self.assertRaises(TypeError):
                 spec.set_active_l(x)
+
+        # temporary
+        spec.set_active_l()
+        with spec.temporary_active_l([0,1]):
+            np.testing.assert_allclose( spec.get_active_mask(), np.array([True,True,True,False]) )
+        np.testing.assert_allclose( spec.get_active_mask(), np.array([True,True,True,True]) )
 
 
 if __name__ == '__main__':

@@ -152,6 +152,27 @@ class FloatSum:
         return f"{type(self).__name__}({self.__dict__}, value={self.value})"
 
 
+def filter_by_range(a, amin=None, amax=None):
+    ''' Discard elements in a outside [amin, amax].
+    '''
+    arr = np.asarray(a)
+    mask = np.ones(arr.shape, dtype=bool)
+
+    if amin is not None:
+        mask &= arr >= amin
+    if amax is not None:
+        mask &= arr <= amax
+
+    out = arr[mask]
+
+    if np.isscalar(a):
+        if out.size == 0:
+            return None
+        return out.item()
+
+    return out
+
+
 if __name__ == '__main__':
     # linear clip
     amin = 1

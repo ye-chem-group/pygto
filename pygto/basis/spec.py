@@ -1,6 +1,8 @@
 import sys
 import numpy as np
 
+from contextlib import contextmanager
+
 from pygto.basis.channel import ETB, Full
 from pygto.lib import StreamObject
 
@@ -27,7 +29,8 @@ class BasisSpec(StreamObject):
         self._active_channel = None
 
     @classmethod
-    def init_from_pyscf_basis(cls, basis, channel_type, repeat_thr=1.01, keep_l=None):
+    def init_from_pyscf_basis(cls, basis, channel_type='full', repeat_thr=1.01, keep_l=None,
+                              emin=None, emax=None):
         ''' Init from PySCF basis.
 
             Note:
@@ -45,11 +48,12 @@ class BasisSpec(StreamObject):
 
         angular_momenta = sorted(list(set([int(b[0]) for b in basis])))
         if keep_l is not None:
+            keep_l = _to_int_list(keep_l)
             angular_momenta = [l for l in angular_momenta if l in keep_l]
 
         channels = []
         for l in angular_momenta:
-            c = Channel.init_from_pyscf_basis(l, basis, repeat_thr)
+            c = Channel.init_from_pyscf_basis(l, basis, repeat_thr, emin, emax)
             if c.nparam > 0:
                 channels.append( c )
 
@@ -198,6 +202,28 @@ class BasisSpec(StreamObject):
 
         self._active_channel = [i for i,c in enumerate(self.channels) if c.l in active_l]
 
+    @contextmanager
+    def temporary_active_channel(self, active_channel=None):
+        old_active_channel = (
+            None if self.active_channel is None else self.active_channel.copy()
+        )
+        try:
+            self.set_active_channel(active_channel)
+            yield self
+        finally:
+            self.set_active_channel(old_active_channel)
+
+    @contextmanager
+    def temporary_active_l(self, active_l=None):
+        old_active_channel = (
+            None if self.active_channel is None else self.active_channel.copy()
+        )
+        try:
+            self.set_active_l(active_l)
+            yield self
+        finally:
+            self.set_active_channel(old_active_channel)
+
     def get_active_mask(self, active_channel=None):
         ''' Return a boolean array specifying which channels are active.
         '''
@@ -249,10 +275,7 @@ class BasisSpec(StreamObject):
     def pyscf_basis(self):
         ''' Return basis in PySCF format
         '''
-        basis = []
-        for c in self.channels:
-            basis += c.pyscf_basis
-        return basis
+        return self.get_pyscf_basis()
 
     # method
     def copy(self):
@@ -339,6 +362,38 @@ class BasisSpec(StreamObject):
 
     def exponents_by_l(self, l):
         return self.channels[l].exponents.copy()
+
+    def get_pyscf_basis(self, keep_l=None, emin=None, emax=None):
+        ''' Return basis set in PySCF format
+
+            Args:
+                keep_l (int or list of int):
+                    Specifying which angular momentum channel to keep.
+                    Default is None, which keeps all channels.
+
+                emin/emax (float):
+                    Only exponents within [emin, emax] will be kept.
+                    Default is None, which does not filter.
+
+            Note:
+                keep_l is independent of active_l, i.e.,
+                ```
+                    with spec.temporary_active_l([0,1]):
+                        basis = spec.get_pyscf_basis()
+                ```
+                still gives the full basis set with all channels.
+        '''
+        if keep_l is None:
+            keep_l = self.angular_momenta
+
+        keep_l = _to_int_list(keep_l)
+
+        basis = []
+        for c in self.channels:
+            if c.l in keep_l:
+                basis += c.get_pyscf_basis(emin, emax)
+
+        return basis
 
     def get_basis_str_nwchem(self, atm=None, header=True):
         ''' Return NWChem format basis string

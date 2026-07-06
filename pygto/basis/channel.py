@@ -2,6 +2,7 @@ import sys
 import numpy as np
 
 from pygto.lib import soft_clip, soft_log_clip, inverse_soft_clip, inverse_soft_log_clip
+from pygto.lib import filter_by_range
 
 
 REPEAT_THR = 1.01
@@ -26,11 +27,14 @@ class Channel:
         if any([e <= 0. for e in exponents]):
             raise ValueError('Exponents must be strictly positive.')
 
-        self._parameters = self.exponents_to_parameters(exponents)
+        if self.n == 0:
+            self._parameters = np.asarray([], dtype=float)
+        else:
+            self._parameters = self.exponents_to_parameters(exponents)
 
     @classmethod
-    def init_from_pyscf_basis(cls, l, basis, repeat_thr=REPEAT_THR):
-        exponents = exponents_from_pyscf_basis_by_l(basis, l, repeat_thr)
+    def init_from_pyscf_basis(cls, l, basis, repeat_thr=REPEAT_THR, emin=None, emax=None):
+        exponents = exponents_from_pyscf_basis_by_l(basis, l, repeat_thr, emin, emax)
         return cls(l, exponents)
 
     def convert_to(self, channel_type):
@@ -106,7 +110,11 @@ class Channel:
     def pyscf_basis(self):
         ''' Return PySCF basis set for this channel
         '''
-        return [(int(self.l), (e, 1.)) for e in self.exponents]
+        return self.get_pyscf_basis()
+
+    def get_pyscf_basis(self, emin=None, emax=None):
+        exponents = filter_by_range(self.exponents, emin, emax)
+        return [(int(self.l), (e, 1.)) for e in exponents]
 
     def copy(self):
         return self.__class__(self.l, self.exponents)
@@ -196,7 +204,7 @@ class Channel:
     dump_basis = dump_basis_nwchem
 
 
-def exponents_from_pyscf_basis_by_l(basis, l, repeat_thr=REPEAT_THR):
+def exponents_from_pyscf_basis_by_l(basis, l, repeat_thr=REPEAT_THR, emin=None, emax=None):
     ''' Extract exponents of a given angular momentum from a PySCF basis
     '''
     exponents = []
@@ -211,6 +219,7 @@ def exponents_from_pyscf_basis_by_l(basis, l, repeat_thr=REPEAT_THR):
 
         exponents = np.hstack((exponents, es))
 
+    exponents = filter_by_range(exponents, emin, emax)
     exponents = remove_repeated_exponents(exponents, repeat_thr)
     return exponents
 
@@ -297,6 +306,8 @@ class ETB(Channel):
     def exponents(self):
         ''' Return a list of exponents
         '''
+        if self.n == 0:
+            return np.asarray([], dtype=float)
         exponents = ETB_to_exponents(self.n, self.amin, self.beta)
         return np.sort(exponents)[::-1]
 

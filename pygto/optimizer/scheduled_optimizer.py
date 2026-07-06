@@ -109,7 +109,7 @@ class ScheduledOptimizer(StreamObject):
         self._stages = stages
 
     @staticmethod
-    def get_preset_stages(name):
+    def get_preset_stages(name='default'):
         if isinstance(name, str):
             if name.lower() not in PRESET_STAGES:
                 raise ValueError(f'Unknown named stages "{name}"')
