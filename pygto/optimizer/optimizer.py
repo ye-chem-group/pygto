@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 
-from pygto.lib import StreamObject
+from pygto.lib import StreamObject, FloatSum
 
 
 class Optimizer(StreamObject):
@@ -24,12 +24,17 @@ class Optimizer(StreamObject):
         self.gtol = None
         self.max_cycle = 1000
 
+        # Attributes for optimization control
         self.accuracy = 'medium'    # this sets ftol, xtol, and gtol
+
+        self.ratio_min = 1.7
+        self.ratio_penalty_strength = 10.   # Hartree
 
         # Attributes set by `kernel`. Do not set them.
         self.parameters = None
         self.cost = None
         self.objective = None
+        self.objective_info = None
         self.gradient = None
         self.converged = False
         self.stop_reason = None
@@ -64,13 +69,26 @@ class Optimizer(StreamObject):
         self._accuracy = accuracy
 
     def get_cost(self, spec):
+        self.feval += 1
         return float(self.cost_func(spec))
 
-    def get_objective(self, parameters):
+    def get_ratio_penalty(self, spec):
+        return float(spec.get_ratio_penalty(self.ratio_min, self.ratio_penalty_strength))
+
+    def get_objective_info(self, parameters):
         spec = self.spec.with_parameters(parameters)
         cost = self.get_cost(spec)
-        self.feval += 1
-        return cost
+        ratio_penalty = self.get_ratio_penalty(spec)
+        objective_info = FloatSum(cost=cost, ratio_penalty=ratio_penalty)
+        return objective_info
+
+    def update_objective_info_(self, parameters):
+        self.objective_info = self.get_objective_info(parameters)
+        self.objective = self.objective_info.value
+        self.cost = self.objective_info.cost
+
+    def get_objective(self, parameters):
+        return self.get_objective_info(parameters).value
 
     def safe_eval(self, parameters):
         try:
@@ -86,8 +104,7 @@ class Optimizer(StreamObject):
     def initialize(self):
         self.parameters = self.spec.parameters
         self.feval = 0
-        self.objective = self.get_objective(self.parameters)
-        self.cost = self.objective
+        self.update_objective_info_(self.parameters)
         self.gradient = None
         self.converged = False
         self.stop_reason = None
@@ -129,6 +146,13 @@ class Optimizer(StreamObject):
     def kernel(self, **kwargs):
         self.set(**kwargs)
 
+        if getattr(self, 'grad_func', None) is not None and self.ratio_penalty_strength is not None:
+            self.log_warn(
+                'User-provided `grad_func` is assumed to be the gradient of the full '
+                'objective, including ratio penalty. PyGTO does not add the ratio-penalty '
+                'gradient automatically at this point.'
+            )
+
         self.initialize()
         self.dump_flags()
         self.print_init()
@@ -144,8 +168,10 @@ class Optimizer(StreamObject):
 
                 self.next_step()
 
+                # update objective, cost, penalty, ...
+                self.update_objective_info_(self.parameters)
+
                 df = self.objective - objective_old
-                self.cost = self.objective
                 self.spec = self.spec.with_parameters(self.parameters)
                 dx = np.max(np.abs(
                     self.spec.convergence_parameters - convergence_parameters_old
@@ -171,6 +197,7 @@ class Optimizer(StreamObject):
             'cycle': self.cycle,
             'cost': self.cost,
             'objective': self.objective,
+            'objective_info': dict(self.objective_info.__dict__),
             'df': df,
             'dx': dx,
             'status': self.status,
@@ -216,7 +243,3 @@ class Optimizer(StreamObject):
         self.log_info('')
         self.log_note('Final cost= %.12f' % self.cost)
         self.log_note('')
-
-
-if __name__ == '__main__':
-    pass

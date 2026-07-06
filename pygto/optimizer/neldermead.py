@@ -39,7 +39,6 @@ class NelderMead(Optimizer):
 
         xs, fs = self.init_simplex()
         self.update_simplex(xs, fs)
-        self.cost = self.objective
         self.status = 'initialized'
 
     def init_simplex(self):
@@ -149,7 +148,6 @@ class NelderMead(Optimizer):
                 )
 
         self.update_simplex(xs, fs)
-        self.cost = self.objective
 
 
 def sort_simplex(xs, fs):

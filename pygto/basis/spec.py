@@ -332,6 +332,11 @@ class BasisSpec(StreamObject):
             self.channels[channel_idx].remove_one_exponent_candidates(upscale, downscale)
         ]
 
+    def get_ratio_penalty(self, ratio_min=None, strength=None):
+        ''' Penalty on two exponents being too close within a channel.
+        '''
+        return sum([c.get_ratio_penalty(ratio_min, strength) for c in self.channels])
+
     def exponents_by_l(self, l):
         return self.channels[l].exponents.copy()
 

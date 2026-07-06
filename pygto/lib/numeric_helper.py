@@ -108,6 +108,50 @@ def inverse_soft_log_clip(y, amin, amax, s=10.0, margin=None):
     return x
 
 
+class FloatSum:
+    def __init__(self, **kwargs):
+        for key, val in kwargs.items():
+            try:
+                val = float(val)
+            except (TypeError, ValueError):
+                raise TypeError(f"{key} must be convertible to float, got {type(val).__name__}")
+            setattr(self, key, val)
+
+    @property
+    def value(self):
+        return sum(self.__dict__.values())
+
+    def __float__(self):
+        return self.value
+
+    def __sub__(self, other):
+        return self.value - other
+
+    def __rsub__(self, other):
+        return other - self.value
+
+    def __add__(self, other):
+        return self.value + other
+
+    def __radd__(self, other):
+        return other + self.value
+
+    def __mul__(self, other):
+        return self.value * other
+
+    def __rmul__(self, other):
+        return other * self.value
+
+    def __truediv__(self, other):
+        return self.value / other
+
+    def __rtruediv__(self, other):
+        return other / self.value
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.__dict__}, value={self.value})"
+
+
 if __name__ == '__main__':
     # linear clip
     amin = 1

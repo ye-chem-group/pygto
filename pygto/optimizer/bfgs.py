@@ -160,7 +160,6 @@ class BFGS(Optimizer):
 
         self.parameters = xtrial
         self.objective = ftrial
-        self.cost = ftrial
         self.gradient = gtrial
 
         s = self.parameters - x

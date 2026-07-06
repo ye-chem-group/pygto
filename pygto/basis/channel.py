@@ -147,6 +147,30 @@ class Channel:
             channels.append( self.__class__(self.l, exponents) )
         return channels
 
+    def get_ratio_penalty(self, ratio_min=None, strength=None):
+        ''' Penalty on two exponents being too close.
+
+            Meth:
+                r(i) = e(i+1)/e(i)
+                penalty = strength * sum_i ( min(r(i) - rmin, 0) )^2
+        '''
+        if ratio_min is None or strength is None:
+            return 0.
+
+        if ratio_min < 0 or strength < 0:
+            raise ValueError('ratio_min and strength must both be positive.')
+
+        if self.nbas <= 1:
+            return 0.
+
+        es = np.sort(self.exponents)
+        ratio = es[1:] / es[:-1]
+        gap = ratio_min - ratio
+        violation = gap[gap > 0]
+        penalty = strength * sum(violation**2)
+
+        return penalty
+
     def get_basis_str_nwchem(self, atm=None, header=True):
         ''' Return NWChem format basis string for this channel
         '''

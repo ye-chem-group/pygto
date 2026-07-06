@@ -20,12 +20,12 @@ class StreamObject:
     def log_error(self, msg, verbose=None):
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_ERROR:
-            self.stdout.write(f'ERROR: {msg}'+'\n')
+            self.stdout.write(f'\nERROR: {msg}'+'\n\n')
 
     def log_warn(self, msg, verbose=None):
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_WARN:
-            self.stdout.write(f'WARN: {msg}'+'\n')
+            self.stdout.write(f'\nWARN: {msg}'+'\n\n')
 
     def log_note(self, msg, verbose=None):
         if verbose is None: verbose = self.verbose
