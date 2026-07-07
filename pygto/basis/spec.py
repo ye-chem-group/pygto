@@ -17,7 +17,7 @@ class BasisSpec(StreamObject):
     '''
 
     _keys = {
-        'active_channel'
+        'atm', 'active_channel'
     }
 
     def __init__(self, channels):
@@ -26,6 +26,7 @@ class BasisSpec(StreamObject):
         self.channels = channels
 
         # attribute with default
+        self.atm = None
         self._active_channel = None
 
     @classmethod
@@ -398,6 +399,8 @@ class BasisSpec(StreamObject):
     def get_basis_str_nwchem(self, atm=None, header=True):
         ''' Return NWChem format basis string
         '''
+        if atm is None: atm = self.atm
+
         s = []
         if header:
             struct = self.structure.replace(' ', ',')
