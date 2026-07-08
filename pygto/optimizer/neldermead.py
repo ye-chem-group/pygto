@@ -33,6 +33,7 @@ class NelderMead(Optimizer):
         self.log_info('shrink= %.3e' % self.shrink)
         self.log_info('simplex_spread_tol= %.3e' % self.simplex_spread_tol)
         self.log_info('max_inner= %d' % self.max_inner)
+        self.log_info('')
 
     def initialize(self):
         super().initialize()

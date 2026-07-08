@@ -39,6 +39,7 @@ class BFGS(Optimizer):
         self.log_info('curvature_tol= %.3e' % self.curvature_tol)
         self.log_info('grad_abs_step= %.3e' % self.grad_abs_step)
         self.log_info('grad_rel_step= %.3e' % self.grad_rel_step)
+        self.log_info('')
 
     def initialize(self):
         super().initialize()

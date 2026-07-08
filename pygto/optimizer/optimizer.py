@@ -68,6 +68,9 @@ class Optimizer(StreamObject):
         self.gtol = self.ftol**0.5
         self._accuracy = accuracy
 
+    def format_cost(self):
+        return f'cost= {self.cost:.10f}'
+
     def get_cost(self, spec):
         self.feval += 1
         return float(self.cost_func(spec))
@@ -142,6 +145,7 @@ class Optimizer(StreamObject):
         self.log_info('xtol= %.3e' % self.xtol)
         self.log_info('gtol= %.3e' % self.gtol)
         self.log_info('max_cycle= %d' % self.max_cycle)
+        self.log_info('')
 
     def kernel(self, **kwargs):
         self.set(**kwargs)
@@ -212,21 +216,20 @@ class Optimizer(StreamObject):
         if self.verbose >= 4:   # info
             self.spec.dump_basis(stdout=self.stdout)
         self.log_info('')
-        self.log_info('Init cost= %.12f' % self.cost)
+        self.log_info('Init %s' % (self.format_cost()))
         self.log_info('')
 
     def print_step(self, df, dx):
         if self.gradient is None:
             self.log_info(
-                'cycle= %d  cost= %.12f  df= % .2e  dx= % .2e  stat= %s'
-                % (self.cycle, self.cost, df, dx, self.status)
+                'cycle= %d  %s  df= % .2e  dx= % .2e  stat= %s'
+                % (self.cycle, (self.format_cost()), df, dx, self.status)
             )
         else:
             gmax = np.max(np.abs(self.gradient))
             self.log_info(
-                'cycle= %d  cost= %.12f  df= % .2e  dx= % .2e  '
-                '|g|= %.2e  stat= %s'
-                % (self.cycle, self.cost, df, dx, gmax, self.status)
+                'cycle= %d  %s  df= % .2e  dx= % .2e  |g|= %.2e  stat= %s'
+                % (self.cycle, (self.format_cost()), df, dx, gmax, self.status)
             )
 
     def print_final(self):
@@ -241,5 +244,5 @@ class Optimizer(StreamObject):
         if self.verbose >= 4:   # info
             self.spec.dump_basis(stdout=self.stdout)
         self.log_info('')
-        self.log_note('Final cost= %.12f' % self.cost)
+        self.log_note('Final %s' % (self.format_cost()))
         self.log_note('')
