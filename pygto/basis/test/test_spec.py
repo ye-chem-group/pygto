@@ -111,9 +111,8 @@ class BasisSpecTest(unittest.TestCase):
         spec.set_active_l([1,2])
         np.testing.assert_allclose( spec.get_active_mask(), np.array([False,True,True,True]) )
 
-        # active_l cannot be assigned directly
-        with self.assertRaises(RuntimeError):
-            spec.active_l = [1,2]
+        spec.active_l = [1,2]
+        np.testing.assert_allclose( spec.get_active_mask(), np.array([False,True,True,True]) )
 
         # copy preserves active_l
         spec1 = spec.copy()

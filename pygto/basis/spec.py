@@ -31,7 +31,7 @@ class BasisSpec(StreamObject):
 
     @classmethod
     def init_from_pyscf_basis(cls, basis, channel_type='full', repeat_thr=1.01, keep_l=None,
-                              emin=None, emax=None):
+                              emin=None, emax=None, atm=None):
         ''' Init from PySCF basis.
 
             Note:
@@ -58,7 +58,7 @@ class BasisSpec(StreamObject):
             if c.nparam > 0:
                 channels.append( c )
 
-        return cls(channels)
+        return cls(channels).set(atm=atm)
 
     def convert_to(self, channel_type):
         ''' Convert a copy of current BasisSpec into specified channel type(s).
@@ -163,7 +163,7 @@ class BasisSpec(StreamObject):
 
     @active_l.setter
     def active_l(self, value):
-        raise RuntimeError('Please use `set_active_l` for setting active angular momenta.')
+        self.set_active_l(value)
 
     def set_active_channel(self, active_channel=None):
         ''' Set active channels by channel index.
@@ -308,7 +308,9 @@ class BasisSpec(StreamObject):
             else:
                 channels.append( c.merge(channels_pool[l][1:]) )
 
-        return self.__class__(channels)
+        new = self.copy()
+        new.channels = channels
+        return new
 
     def merge(self, other):
         ''' Merge current BasisSpec with one or more other BasisSpec's.
@@ -316,11 +318,16 @@ class BasisSpec(StreamObject):
         if not isinstance(other, self.__class__):
             raise TypeError('Can only merge another %s' % (self.__class__.__name__))
 
+        if self.atm != other.atm:
+            raise ValueError('Cannot merge two specs with different `atm`.')
+
         overlap = set(self.angular_momenta) & set(other.angular_momenta)
         if overlap:
             raise ValueError(f'Duplicate angular momentum channels: {sorted(overlap)}')
 
-        return self.__class__([*self.channels, *other.channels])
+        new = self.copy()
+        new.channels = [c.copy() for c in [*self.channels, *other.channels]]
+        return new
 
     def replace_channel(self, channel, channel_idx):
         ''' Replace a specific channel by channel index
@@ -446,7 +453,7 @@ if __name__ == '__main__':
     mol = gto.M(atom=atm, basis='cc-pvtz', spin=None)
     basis = mol._basis[atm]
 
-    spec = BasisSpec.init_from_pyscf_basis(basis, 'full')
+    spec = BasisSpec.init_from_pyscf_basis(basis, atm=atm)
 
     print(spec)
     print(spec.structure)
