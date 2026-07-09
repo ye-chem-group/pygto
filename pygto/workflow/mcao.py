@@ -13,9 +13,11 @@ class MCAO(StreamObject):
         self.lindep_penalty_func = lindep_penalty_func
 
         self.penalty_strength = 0.003
-        self.max_cycle = 3
-        self.lattice_scaling_step_size = 0.05
+        self.max_cycle = 5
+        self.lattice_scaling_step_size = 0.03
         self.lattice_scaling_target_penalty = 0.1
+
+        self.basis_to_save = None
 
         # attributes set by kernel; do not modify
         self.cost = None
@@ -143,6 +145,10 @@ class MCAO(StreamObject):
             if self.verbose >= 4:
                 self.spec.dump_basis(stdout=self.stdout)
             self.log_info('')
+
+            if self.basis_to_save is not None:
+                with open(self.basis_to_save, 'w') as f:
+                    self.spec.dump_basis(stdout=f)
 
             if np.isclose(scale, 1.):
                 break
