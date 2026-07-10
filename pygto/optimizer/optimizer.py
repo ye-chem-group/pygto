@@ -13,10 +13,10 @@ class Optimizer(StreamObject):
 
     support_grad = False
 
-    def __init__(self, spec, cost_func, verbose=4):
-        self.spec = spec.copy()
+    def __init__(self, spec, cost_func, verbose=None):
+        self.spec = spec
         self.cost_func = cost_func
-        self.verbose = verbose
+        if verbose is not None: self.verbose = verbose
 
         self._accuracy = None
         self.ftol = None
@@ -33,6 +33,7 @@ class Optimizer(StreamObject):
         # Attributes set by `kernel`. Do not set them.
         self.parameters = None
         self.cost = None
+        self.ratio_penalty = None
         self.objective = None
         self.objective_info = None
         self.gradient = None
@@ -71,17 +72,18 @@ class Optimizer(StreamObject):
     def format_cost(self):
         return f'cost= {self.cost:.10f}'
 
-    def get_cost(self, spec):
+    def get_cost(self, parameters):
         self.feval += 1
+        spec = self.spec.with_parameters(parameters)
         return float(self.cost_func(spec))
 
-    def get_ratio_penalty(self, spec):
+    def get_ratio_penalty(self, parameters):
+        spec = self.spec.with_parameters(parameters)
         return float(spec.get_ratio_penalty(self.ratio_min, self.ratio_penalty_strength))
 
     def get_objective_info(self, parameters):
-        spec = self.spec.with_parameters(parameters)
-        cost = self.get_cost(spec)
-        ratio_penalty = self.get_ratio_penalty(spec)
+        cost = self.get_cost(parameters)
+        ratio_penalty = self.get_ratio_penalty(parameters)
         objective_info = FloatSum(cost=cost, ratio_penalty=ratio_penalty)
         return objective_info
 
@@ -89,6 +91,7 @@ class Optimizer(StreamObject):
         self.objective_info = self.get_objective_info(parameters)
         self.objective = self.objective_info.value
         self.cost = self.objective_info.cost
+        self.ratio_penalty = self.objective_info.ratio_penalty
 
     def get_objective(self, parameters):
         return self.get_objective_info(parameters).value
@@ -162,13 +165,15 @@ class Optimizer(StreamObject):
         self.print_init()
         self.save_history(df=0.0, dx=0.0)
 
+        spec = self.spec.with_parameters(self.parameters)
+
         if not np.isfinite(self.objective):
             self.stop_reason = 'nonfinite_objective'
         else:
             for cycle in range(1, self.max_cycle+1):
                 self.cycle = cycle
                 objective_old = self.objective
-                convergence_parameters_old = self.spec.convergence_parameters.copy()
+                spec_old = spec
 
                 self.next_step()
 
@@ -176,9 +181,9 @@ class Optimizer(StreamObject):
                 self.update_objective_info_(self.parameters)
 
                 df = self.objective - objective_old
-                self.spec = self.spec.with_parameters(self.parameters)
+                spec = self.spec.with_parameters(self.parameters)
                 dx = np.max(np.abs(
-                    self.spec.convergence_parameters - convergence_parameters_old
+                    spec.convergence_parameters - spec_old.convergence_parameters
                 ))
 
                 self.print_step(df, dx)
@@ -192,6 +197,8 @@ class Optimizer(StreamObject):
                     break
             else:
                 self.stop_reason = 'max_cycle'
+
+        self.spec.parameters = self.parameters
 
         self.print_final()
         return self.cost, self.spec
@@ -216,21 +223,23 @@ class Optimizer(StreamObject):
         if self.verbose >= 4:   # info
             self.spec.dump_basis(stdout=self.stdout)
         self.log_info('')
-        self.log_info('Init %s' % (self.format_cost()))
+        self.log_info('Init %s  ratio_penalty= %.2e' % (self.format_cost(), self.ratio_penalty))
         self.log_info('')
 
     def print_step(self, df, dx):
         if self.gradient is None:
             self.log_info(
-                'cycle= %d  %s  df= % .2e  dx= % .2e  stat= %s'
+                'cycle= %d  %s  df= % .2e  dx= %.2e  stat= %s'
                 % (self.cycle, (self.format_cost()), df, dx, self.status)
             )
         else:
             gmax = np.max(np.abs(self.gradient))
             self.log_info(
-                'cycle= %d  %s  df= % .2e  dx= % .2e  |g|= %.2e  stat= %s'
+                'cycle= %d  %s  df= % .2e  dx= %.2e  |g|= %.2e  stat= %s'
                 % (self.cycle, (self.format_cost()), df, dx, gmax, self.status)
             )
+        if self.ratio_penalty > 1e-6:    # 1 micro-Hartree
+            self.log_warn('ratio_penalty= %.2e' % self.ratio_penalty)
 
     def print_final(self):
         self.log_info('')
@@ -244,5 +253,5 @@ class Optimizer(StreamObject):
         if self.verbose >= 4:   # info
             self.spec.dump_basis(stdout=self.stdout)
         self.log_info('')
-        self.log_note('Final %s' % (self.format_cost()))
+        self.log_info('Final %s  ratio_penalty= %.2e' % (self.format_cost(), self.ratio_penalty))
         self.log_note('')

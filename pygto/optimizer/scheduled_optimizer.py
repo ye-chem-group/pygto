@@ -53,12 +53,12 @@ PRESET_STAGES = {
 }
 
 class ScheduledOptimizer(StreamObject):
-    def __init__(self, spec, cost_func, stages='default', grad_func=None, verbose=4):
-        self.spec = spec.copy()
+    def __init__(self, spec, cost_func, stages='default', grad_func=None, verbose=None):
+        self.spec = spec
         self.cost_func = cost_func
         self.grad_func = grad_func
         self._stages = None
-        self.verbose = verbose
+        if verbose is not None: self.verbose = verbose
 
         self.set_stages(stages)
 
