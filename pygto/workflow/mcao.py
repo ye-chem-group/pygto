@@ -6,7 +6,7 @@ from pygto.lib import StreamObject, Lattice
 from pygto.optimizer import ScheduledOptimizer
 
 
-class MCAO(StreamObject):
+class MaterialConstraintAtomicOptimization(StreamObject):
 
     def __init__(self, spec, stages, lindep_penalty_func):
         self.spec = spec
@@ -237,6 +237,8 @@ class MCAO(StreamObject):
         if self.verbose >= 3:
             self.spec.dump_basis(stdout=self.stdout)
         self.log_note('')
+
+MCAO = MaterialConstraintAtomicOptimization
 
 
 def get_uniq_kpts(cell, natm_min=300, verbose=None):
