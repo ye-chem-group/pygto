@@ -472,6 +472,14 @@ class BasisSpec(StreamObject):
         if stdout is None: stdout = self.stdout
         stdout.write(basis_str + '\n')
 
+    def dump_channel_basis(self, channel_idx, stdout=None, atm=None, header=True):
+        self._check_channel_idx(channel_idx)
+        if stdout is None: stdout = self.stdout
+        if atm is None: atm = self.atm
+        return self.channels[channel_idx].dump_basis(
+            stdout=stdout, atm=atm, header=header
+        )
+
     get_basis_str = get_basis_str_nwchem
     dump_basis = dump_basis_nwchem
 
