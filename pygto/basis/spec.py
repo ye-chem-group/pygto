@@ -333,7 +333,7 @@ class BasisSpec(StreamObject):
         new.channels = [c.copy() for c in [*self.channels, *other.channels]]
         return new
 
-    def replace_channel(self, channel, channel_idx):
+    def replace_channel(self, channel_idx, channel):
         ''' Replace a specific channel by channel index
         '''
         self._check_channel_idx(channel_idx)
@@ -342,13 +342,19 @@ class BasisSpec(StreamObject):
         new.channels[channel_idx] = channel
         return new
 
+    def replace_channel_(self, channel_idx, channel):
+        ''' Replace a specific channel by channel index in place
+        '''
+        self._check_channel_idx(channel_idx)
+        self.channels[channel_idx] = channel
+
     def add_one_exponent_candidates(self, channel_idx, upscale=1.2, downscale=0.8, emin=0.01):
         ''' Return several new BasisSpec's with one exponent added to in a given chnanel
         '''
         self._check_channel_idx(channel_idx)
 
         return [
-            self.replace_channel(channel, channel_idx)
+            self.replace_channel(channel_idx, channel)
             for channel in
             self.channels[channel_idx].add_one_exponent_candidates(upscale, downscale, emin)
         ]
@@ -359,7 +365,7 @@ class BasisSpec(StreamObject):
         self._check_channel_idx(channel_idx)
 
         return [
-            self.replace_channel(channel, channel_idx)
+            self.replace_channel(channel_idx, channel)
             for channel in
             self.channels[channel_idx].remove_one_exponent_candidates(upscale, downscale)
         ]
@@ -381,7 +387,7 @@ class BasisSpec(StreamObject):
         self._check_channel_idx(channel_idx)
 
         return [
-            self.replace_channel(channel, channel_idx)
+            self.replace_channel(channel_idx, channel)
             for channel in
             self.channels[channel_idx].remove_one_exponent_candidates_rigid(emin, emax)
         ]

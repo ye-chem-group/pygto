@@ -71,7 +71,7 @@ class BasisSpecTest(unittest.TestCase):
                                     spec.active_channel )
 
         # replace_channel preserve active_channel
-        np.testing.assert_allclose( spec.replace_channel(Full(1, [3., 4.]), 1).active_channel,
+        np.testing.assert_allclose( spec.replace_channel(1, Full(1, [3., 4.])).active_channel,
                                     spec.active_channel )
 
         # reset
