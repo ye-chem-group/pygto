@@ -3,6 +3,7 @@ import numpy as np
 
 from pygto.lib import soft_clip, soft_log_clip, inverse_soft_clip, inverse_soft_log_clip, softplus
 from pygto.lib import filter_by_range, to_int_list
+from pygto.lib import StreamObject
 
 
 REPEAT_THR = 1.01
@@ -14,11 +15,13 @@ BETA_MAX = 10
 BETA_K = 10.
 
 
-class Channel:
+class Channel(StreamObject):
 
     amin_min = AMIN_MIN
     amax_max = AMAX_MAX
     aminmax_k = AMINMAX_K
+
+    _keys = {}
 
     def __init__(self, l, exponents):
         self.l = int(l)
@@ -45,6 +48,9 @@ class Channel:
             new = Full(self.l, self.exponents)
         else:
             raise TypeError('Unknown channel type. Acceptable values are "etb" and "full".')
+
+        for k in self._keys:
+            setattr(new, k, getattr(self, k))
 
         return new
 
@@ -135,7 +141,22 @@ class Channel:
         return [(int(self.l), (e, 1.)) for e in exponents]
 
     def copy(self):
-        return self.__class__(self.l, self.exponents)
+        new = self.__class__(self.l, self.exponents)
+        for k in self._keys:
+            setattr(new, k, getattr(self, k))
+        return new
+
+    def replace_exponents(self, exponents):
+        ''' Return a copy with exponents replaced
+        '''
+        new = self.copy()
+        new.exponents = exponents
+        return new
+
+    def replace_exponents_(self, exponents):
+        ''' Replace exponents in place
+        '''
+        self.exponents = exponents
 
     def merge(self, others, repeat_thr=REPEAT_THR):
         ''' Merge the current channel with other channels of same angular momentum.
@@ -159,24 +180,24 @@ class Channel:
 
         exponents = remove_repeated_exponents(exponents, repeat_thr)
 
-        return self.__class__(self.l, exponents)
+        return self.replace_exponents(exponents)
 
     def remove_one_exponent_candidates(self, upscale=1.2, downscale=0.8):
         channels = []
         for exponents in remove_one_exponent_candidates(self.exponents, upscale, downscale):
-            channels.append( self.__class__(self.l, exponents) )
+            channels.append( self.replace_exponents(exponents) )
         return channels
 
     def add_one_exponent_candidates(self, upscale=1.2, downscale=0.8, emin=0.01):
         channels = []
         for exponents in add_one_exponent_candidates(self.exponents, upscale, downscale, emin):
-            channels.append( self.__class__(self.l, exponents) )
+            channels.append( self.replace_exponents(exponents) )
         return channels
 
     def remove_one_exponent_candidates_rigid(self, emin=None, emax=None):
         exponents = np.sort(filter_by_range(self.exponents, emin, emax))
         return [
-            self.__class__(self.l, subexponents)
+            self.replace_exponents(subexponents)
             for subexponents in [np.delete(exponents, i) for i in range(len(exponents))]
         ]
 
@@ -253,12 +274,12 @@ class Channel:
             s.append( f'{e:15.7f}  {1.: .6e}' )
         return '\n'.join(s)
 
-    def dump_basis_nwchem(self, des=None, atm=None, header=True):
+    def dump_basis_nwchem(self, stdout=None, atm=None, header=True):
         ''' Print NWChem format basis string to given destination
         '''
         basis_str = self.get_basis_str_nwchem(atm=atm, header=header)
-        if des is None: des = sys.stdout
-        des.write(basis_str + '\n')
+        if stdout is None: stdout = self.stdout
+        stdout.write(basis_str + '\n')
 
     get_basis_str = get_basis_str_nwchem
     dump_basis = dump_basis_nwchem
