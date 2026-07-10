@@ -19,35 +19,37 @@ class StreamObject:
     verbose = 3
     stdout = sys.stdout
 
-    def log_error(self, msg, verbose=None):
+    def log_error(self, msg, verbose=None, space=True):
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_ERROR:
-            self.stdout.write(f'\nERROR: {msg}'+'\n\n')
-            self.flush_stdout()
+            self.write_msg(f'ERROR: {msg}', space)
 
-    def log_warn(self, msg, verbose=None):
+    def log_warn(self, msg, verbose=None, space=True):
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_WARN:
-            self.stdout.write(f'\nWARN: {msg}'+'\n\n')
-            self.flush_stdout()
+            self.write_msg(f'WARN: {msg}', space)
 
-    def log_note(self, msg, verbose=None):
+    def log_note(self, msg, verbose=None, space=False):
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_NOTE:
-            self.stdout.write(msg+'\n')
-            self.flush_stdout()
+            self.write_msg(msg, space)
 
-    def log_info(self, msg, verbose=None):
+    def log_info(self, msg, verbose=None, space=False):
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_INFO:
-            self.stdout.write(msg+'\n')
-            self.flush_stdout()
+            self.write_msg(msg, space)
 
-    def log_debug(self, msg, verbose=None):
+    def log_debug(self, msg, verbose=None, space=False):
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_DEBUG:
-            self.stdout.write(msg+'\n')
-            self.flush_stdout()
+            self.write_msg(msg, space)
+
+    def write_msg(self, msg, space=False):
+        if space:
+            self.stdout.write(f'\n{msg}\n' + '\n')
+        else:
+            self.stdout.write(f'{msg}' + '\n')
+        self.flush_stdout()
 
     def flush_stdout(self):
         if hasattr(self.stdout, 'flush'):
