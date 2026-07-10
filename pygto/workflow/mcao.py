@@ -12,10 +12,12 @@ class MCAO(StreamObject):
         self.spec = spec
         self.lindep_penalty_func = lindep_penalty_func
 
+        # attributes with recommended default
         self.penalty_strength = 0.003
         self.max_cycle = 5
         self.lattice_scaling_step_size = 0.03
         self.lattice_scaling_target_penalty = 0.1
+        self.verbose_optimizer = None
 
         self.basis_to_save = None
 
@@ -34,10 +36,12 @@ class MCAO(StreamObject):
         self.log_info('max_cycle= %d' % self.max_cycle)
         self.log_info('lattice_scaling_step_size= %.15g' % self.lattice_scaling_step_size)
         self.log_info('lattice_scaling_target_penalty= %.15g' % self.lattice_scaling_target_penalty)
+        self.log_info('verbose_optimizer= %s' % self.verbose_optimizer)
+        self.log_info('basis_to_save= %s' % self.basis_to_save)
         self.log_info('')
 
     def initialize(self):
-        spec = self.spec
+        spec = self.spec.copy()
         self.cost = self.cost_func(spec)
         self.penalty, self.cond = self.lindep_penalty_func(spec)
 
@@ -79,27 +83,29 @@ class MCAO(StreamObject):
 
         self._stages = stages
 
-    def cost_func(self, spec=None, stages=None):
+    def cost_func(self, spec, stages=None):
         ''' Evaluate all cost_func's in stages.
         '''
-        if spec is None: spec = self.spec
         if stages is None: stages = self.stages
 
         return [
             (stage['prefix'], stage['cost_func'](spec)) for stage in stages
         ]
 
-    def format_result(self):
-        sout = [f'{name}= {val:.9f}' for name,val in self.cost]
-        sout += [f'penalty= {self.penalty:.3e}', f'cond= {self.cond:.3e}']
+    def format_result(self, cost=None, penalty=None, cond=None):
+        if cost is None: cost = self.cost
+        if penalty is None: penalty = self.penalty
+        if cond is None: cond = self.cond
+        sout = [f'{name}= {val:.9f}' for name,val in cost]
+        sout += [f'penalty= {penalty:.3e}', f'cond= {cond:.3e}']
         return '  '.join(sout)
 
-    def get_lattice_scaling_schedule(self, scale0=None):
+    def get_lattice_scaling_schedule(self, spec, scale0=None):
         if scale0 is not None and not isinstance(scale0, float):
             raise TypeError('scale0 must be float.')
 
         if scale0 is None:
-            scale0 = solve_scale_for_penalty(self.spec, self.lindep_penalty_func,
+            scale0 = solve_scale_for_penalty(spec, self.lindep_penalty_func,
                                              self.lattice_scaling_target_penalty)
 
         if np.isclose(scale0, 1.):
@@ -118,53 +124,53 @@ class MCAO(StreamObject):
 
         self.dump_flags()
         self.initialize()
+        self.print_init()
 
-        self.log_info('')
-        self.log_info('Init %s' % (self.format_result()))
-        self.log_info('')
+        spec = self.spec.copy()
 
-        scales = self.get_lattice_scaling_schedule()
-        self.log_info('')
+        scales = self.get_lattice_scaling_schedule(spec)
         self.log_info('Lattice scaling schedule: %s' % (', '.join([f'{x:.3f}' for x in scales])))
-        self.log_info('')
 
         for scale in scales:
-            self.penalty, self.cond = self.lindep_penalty_func(self.spec, scale)
+            self.penalty, self.cond = self.lindep_penalty_func(spec, scale)
 
-            self.log_info('')
             self.log_info('Enter MCAO cycle  scale= %.3f  %s' % (scale, self.format_result()))
-            self.log_info('')
 
-            self.kernel_mcao(scale)
+            self.cost, self.penalty, self.cond, spec = self.kernel_mcao(spec, scale)
 
-            self.log_info('')
             self.log_info('Leaving MCAO cycle  scale= %.3f  %s' % (scale, self.format_result()))
-            self.log_info('')
 
+            self.log_info('')
             self.log_info('Current basis:')
             if self.verbose >= 4:
-                self.spec.dump_basis(stdout=self.stdout)
+                spec.dump_basis(stdout=self.stdout)
             self.log_info('')
 
             if self.basis_to_save is not None:
                 with open(self.basis_to_save, 'w') as f:
-                    self.spec.dump_basis(stdout=f)
+                    spec.dump_basis(stdout=f)
 
             if np.isclose(scale, 1.):
                 break
 
-        self.log_info('')
-        self.log_info('Final %s' % (self.format_result()))
-        self.log_info('')
-        self.log_info('Final basis:')
-        if self.verbose >= 4:
-            self.spec.dump_basis(stdout=self.stdout)
-        self.log_info('')
+        self.spec.parameters = spec.parameters
 
-    def kernel_mcao(self, scale=1.):
+        self.print_final()
+
+        return self.cost, self.penalty, self.cond, self.spec
+
+    def kernel_mcao(self, spec, scale=1., stages=None, lindep_penalty_func=None,
+                    penalty_strength=None, max_cycle=None, verbose_optimizer=None):
         ''' Perform MCAO for an optionally scaled lattice.
         '''
-        lindep_penalty_func_fixed_scale = lambda x: self.lindep_penalty_func(x, scale)
+        if stages is None: stages = self.stages
+        if penalty_strength is None: penalty_strength = self.penalty_strength
+        if lindep_penalty_func is None: lindep_penalty_func = self.lindep_penalty_func
+        if max_cycle is None: max_cycle = self.max_cycle
+        if verbose_optimizer is None: verbose_optimizer = self.verbose_optimizer
+        if verbose_optimizer is None: verbose_optimizer = max(2, self.verbose-3)
+
+        lindep_penalty_func_fixed_scale = lambda x: lindep_penalty_func(x, scale)
 
         def penalty_func(spec, full_output=False):
             penalty, cond = lindep_penalty_func_fixed_scale(spec)
@@ -173,19 +179,19 @@ class MCAO(StreamObject):
             else:
                 return penalty
 
-        for cycle in range(1, self.max_cycle+1):
+        for cycle in range(1, max_cycle+1):
 
-            for stage in self.stages:
+            for stage in stages:
                 prefix = stage['prefix']
                 cost_func = stage['cost_func']
                 penalty_rescale = stage['penalty_rescale']
                 active_l = stage['active_l']
-                verbose = stage.get('verbose', 4)
+                verbose = stage.get('verbose', verbose_optimizer)
 
                 def cost_func_with_penalty(spec):
                     cost = cost_func(spec)
                     penalty = penalty_func(spec)
-                    objective = cost + penalty * self.penalty_strength * penalty_rescale
+                    objective = cost + penalty * penalty_strength * penalty_rescale
                     return objective
 
                 def format_cost(s):
@@ -195,24 +201,42 @@ class MCAO(StreamObject):
                         s.cost, energy, penalty, cond
                     )
 
-                with self.spec.temporary_active_l(active_l):
+                with spec.temporary_active_l(active_l):
                     opt_stages = ScheduledOptimizer.get_preset_stages()
                     for opt_stage in opt_stages:
                         opt_stage['optimizer_settings'] = {
                             'format_cost': format_cost,
                         }
-                    opt = ScheduledOptimizer(self.spec, cost_func_with_penalty,
-                                             stages=opt_stages).set(verbose=verbose)
+                    opt = ScheduledOptimizer(spec, cost_func_with_penalty,
+                                             stages=opt_stages).set(verbose=verbose_optimizer)
                     opt.kernel()
 
-                self.spec = opt.spec
+                spec = opt.spec
 
-            self.cost = self.cost_func(self.spec)
-            self.penalty, self.cond = lindep_penalty_func_fixed_scale(self.spec)
+            cost = [(stage['prefix'], stage['cost_func'](spec)) for stage in stages]
+            penalty, cond = lindep_penalty_func_fixed_scale(spec)
 
-            self.log_info('')
-            self.log_info('MCAO cycle= %d  %s' % (cycle, self.format_result()))
-            self.log_info('')
+            self.log_debug('MCAO cycle= %d  %s' % (cycle, self.format_result(cost, penalty, cond)),
+                          indent=1)
+
+        return cost, penalty, cond, spec
+
+    def print_init(self):
+        self.log_note('')
+        self.log_note('Init basis:')
+        if self.verbose >= 3:
+            self.spec.dump_basis(stdout=self.stdout)
+        self.log_note('Init %s' % (self.format_result()), space=True)
+
+    def print_step(self):
+        pass
+
+    def print_final(self):
+        self.log_note('Final %s' % (self.format_result()), space=True)
+        self.log_note('Final basis:')
+        if self.verbose >= 3:
+            self.spec.dump_basis(stdout=self.stdout)
+        self.log_note('')
 
 
 def get_uniq_kpts(cell, natm_min=300, verbose=None):
@@ -404,6 +428,6 @@ if __name__ == '__main__':
     ]
 
     lindep_penalty_func = MCAO.init_lindep_penalty_func(atm, cell)
-    mcao = MCAO(spec, stages, lindep_penalty_func).set(verbose=4)
+    mcao = MCAO(spec, stages, lindep_penalty_func).set(verbose=5)
     mcao.set(penalty_strength=penalty_strength)
     mcao.kernel()
