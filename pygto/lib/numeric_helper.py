@@ -173,6 +173,23 @@ def filter_by_range(a, amin=None, amax=None):
     return out
 
 
+def to_int_list(a):
+    Int = (int, np.int32, np.int64)
+    Iterable = (list, tuple, set, np.ndarray)
+
+    if isinstance(a, Int):
+        a = [a]
+    elif isinstance(a, Iterable):
+        if not all([isinstance(x, Int) for x in a]):
+            raise TypeError('Some/all elements are not Integer')
+        a = [int(x) for x in a]
+    else:
+        raise TypeError('Input must be either an Integer or a '
+                        'List/Tuple/Set/NumpyArray of Integer.')
+
+    return a
+
+
 if __name__ == '__main__':
     # linear clip
     amin = 1

@@ -4,7 +4,7 @@ import numpy as np
 from contextlib import contextmanager
 
 from pygto.basis.channel import ETB, Full
-from pygto.lib import StreamObject
+from pygto.lib import StreamObject, to_int_list
 
 
 
@@ -49,7 +49,7 @@ class BasisSpec(StreamObject):
 
         angular_momenta = sorted(list(set([int(b[0]) for b in basis])))
         if keep_l is not None:
-            keep_l = _to_int_list(keep_l)
+            keep_l = to_int_list(keep_l)
             angular_momenta = [l for l in angular_momenta if l in keep_l]
 
         channels = []
@@ -173,7 +173,7 @@ class BasisSpec(StreamObject):
             self._active_channel = None  # reset and activate all channels
             return
 
-        active_channel = _to_int_list(active_channel)
+        active_channel = to_int_list(active_channel)
 
         if len(active_channel) == 0:
             raise ValueError('Channel index must not be empty.')
@@ -191,7 +191,7 @@ class BasisSpec(StreamObject):
             self._active_channel = None  # reset and activate all channels
             return
 
-        active_l = _to_int_list(active_l)
+        active_l = to_int_list(active_l)
 
         if len(active_l) == 0:
             raise ValueError('Angular momenta must not be empty.')
@@ -231,7 +231,7 @@ class BasisSpec(StreamObject):
         if active_channel is None:
             active_channel = self._active_channel
         else:
-            active_channel = _to_int_list(active_channel)
+            active_channel = to_int_list(active_channel)
 
         if active_channel is None:
             mask = np.ones(self.nchannel, dtype=bool)
@@ -265,6 +265,10 @@ class BasisSpec(StreamObject):
         ''' Return total number of channels
         '''
         return len(self.channels)
+
+    def _check_channel_idx(self, channel_idx):
+        if channel_idx < 0 or channel_idx >= self.nchannel:
+            raise IndexError('channel_idx out of range (0 ≤ channel_idx ≤ %d)'%(self.nchannel-1))
 
     @property
     def angular_momenta(self):
@@ -332,8 +336,7 @@ class BasisSpec(StreamObject):
     def replace_channel(self, channel, channel_idx):
         ''' Replace a specific channel by channel index
         '''
-        if channel_idx < 0 or channel_idx >= self.nchannel:
-            raise IndexError('channel_idx out of range (0 ≤ channel_idx ≤ %d)'%(self.nchannel-1))
+        self._check_channel_idx(channel_idx)
 
         new = self.copy()
         new.channels[channel_idx] = channel
@@ -342,8 +345,7 @@ class BasisSpec(StreamObject):
     def add_one_exponent_candidates(self, channel_idx, upscale=1.2, downscale=0.8, emin=0.01):
         ''' Return several new BasisSpec's with one exponent added to in a given chnanel
         '''
-        if channel_idx < 0 or channel_idx >= self.nchannel:
-            raise IndexError('channel_idx out of range (0 ≤ channel_idx ≤ %d)'%(self.nchannel-1))
+        self._check_channel_idx(channel_idx)
 
         return [
             self.replace_channel(channel, channel_idx)
@@ -354,8 +356,7 @@ class BasisSpec(StreamObject):
     def remove_one_exponent_candidates(self, channel_idx, upscale=1.2, downscale=0.8):
         ''' Return several new BasisSpec's with one exponent removed from a given chnanel
         '''
-        if channel_idx < 0 or channel_idx >= self.nchannel:
-            raise IndexError('channel_idx out of range (0 ≤ channel_idx ≤ %d)'%(self.nchannel-1))
+        self._check_channel_idx(channel_idx)
 
         return [
             self.replace_channel(channel, channel_idx)
@@ -370,6 +371,46 @@ class BasisSpec(StreamObject):
 
     def exponents_by_l(self, l):
         return self.channels[l].exponents.copy()
+
+    def remove_one_exponent_candidates_rigid(self, channel_idx, emin=None, emax=None):
+        ''' Return a list of new BasisSpec's with one exponent removed from given channel.
+
+            Use emin and emax for select the exponent window from which you want the
+            exponents to be removed. Default is None, which means no window is applied.
+        '''
+        self._check_channel_idx(channel_idx)
+
+        return [
+            self.replace_channel(channel, channel_idx)
+            for channel in
+            self.channels[channel_idx].remove_one_exponent_candidates_rigid(emin, emax)
+        ]
+
+    def filter_channel_by_index_(self, channel_idx, exponent_idx):
+        ''' Filter a channel in place by exponent index
+        '''
+        self._check_channel_idx(channel_idx)
+        self.channels[channel_idx].filter_by_index_(exponent_idx)
+
+    def filter_channel_by_index(self, channel_idx, exponent_idx):
+        ''' Return a new BasisSpec where a channel is filtered by exponent index
+        '''
+        new = self.copy()
+        new.filter_channel_by_index_(channel_idx, exponent_idx)
+        return new
+
+    def filter_channel_by_exponent_range_(self, channel_idx, emin=None, emax=None):
+        ''' Filter a channel in place by [emin, emax]
+        '''
+        self._check_channel_idx(channel_idx)
+        self.channels[channel_idx].filter_by_exponent_range_(emin, emax)
+
+    def filter_channel_by_exponent_range(self, channel_idx, emin=None, emax=None):
+        ''' Return a new BasisSpec where a channel is filtered by [emin, emax]
+        '''
+        new = self.copy()
+        new.filter_channel_by_exponent_range_(channel_idx, emin, emax)
+        return new
 
     def get_pyscf_basis(self, keep_l=None, emin=None, emax=None):
         ''' Return basis set in PySCF format
@@ -394,7 +435,7 @@ class BasisSpec(StreamObject):
         if keep_l is None:
             keep_l = self.angular_momenta
 
-        keep_l = _to_int_list(keep_l)
+        keep_l = to_int_list(keep_l)
 
         basis = []
         for c in self.channels:
@@ -427,23 +468,6 @@ class BasisSpec(StreamObject):
 
     get_basis_str = get_basis_str_nwchem
     dump_basis = dump_basis_nwchem
-
-
-def _to_int_list(a):
-    Int = (int, np.int32, np.int64)
-    Iterable = (list, tuple, set, np.ndarray)
-
-    if isinstance(a, Int):
-        a = [a]
-    elif isinstance(a, Iterable):
-        if not all([isinstance(x, Int) for x in a]):
-            raise TypeError('Some/all elements are not Integer')
-        a = [int(x) for x in a]
-    else:
-        raise TypeError('Input must be either an Integer or a '
-                        'List/Tuple/Set/NumpyArray of Integer.')
-
-    return a
 
 
 if __name__ == '__main__':

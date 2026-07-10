@@ -1,8 +1,8 @@
 import sys
 import numpy as np
 
-from pygto.lib import soft_clip, soft_log_clip, inverse_soft_clip, inverse_soft_log_clip
-from pygto.lib import filter_by_range
+from pygto.lib import soft_clip, soft_log_clip, inverse_soft_clip, inverse_soft_log_clip, softplus
+from pygto.lib import filter_by_range, to_int_list
 
 
 REPEAT_THR = 1.01
@@ -22,15 +22,9 @@ class Channel:
 
     def __init__(self, l, exponents):
         self.l = int(l)
-        self.n = len(exponents)
+        self._nexponent = None
 
-        if any([e <= 0. for e in exponents]):
-            raise ValueError('Exponents must be strictly positive.')
-
-        if self.n == 0:
-            self._parameters = np.asarray([], dtype=float)
-        else:
-            self._parameters = self.exponents_to_parameters(exponents)
+        self.exponents = exponents
 
     @classmethod
     def init_from_pyscf_basis(cls, l, basis, repeat_thr=REPEAT_THR, emin=None, emax=None):
@@ -93,18 +87,42 @@ class Channel:
 
     # properties
     @property
+    def exponents(self):
+        ''' To be implemented for each subclass
+        '''
+        raise NotImplementedError
+
+    @exponents.setter
+    def exponents(self, value):
+        ''' Reset parameters by exponents
+        '''
+        value = np.asarray(value, dtype=float)
+        if np.any(value <= 0.):
+            raise ValueError('Exponents must be strictly positive.')
+
+        self._nexponent = len(value)
+        if self._nexponent == 0:
+            self._parameters = np.asarray([], dtype=float)
+        else:
+            self._parameters = self.exponents_to_parameters(value)
+
+    @property
     def nao(self):
         dgen = self.l * 2 + 1
-        return self.n * dgen
+        return self.nbas * dgen
 
     @property
     def nbas(self):
-        return self.n
+        return self.nexponent
+
+    @property
+    def nexponent(self):
+        return self._nexponent
 
     @property
     def structure(self):
         lstr = 'spdfghikl'[self.l]
-        return f'{self.n}{lstr}'
+        return f'{self.nbas}{lstr}'
 
     @property
     def pyscf_basis(self):
@@ -155,6 +173,40 @@ class Channel:
             channels.append( self.__class__(self.l, exponents) )
         return channels
 
+    def remove_one_exponent_candidates_rigid(self, emin=None, emax=None):
+        exponents = np.sort(filter_by_range(self.exponents, emin, emax))
+        return [
+            self.__class__(self.l, subexponents)
+            for subexponents in [np.delete(exponents, i) for i in range(len(exponents))]
+        ]
+
+    def filter_by_exponent_range_(self, emin=None, emax=None):
+        ''' Filter exponents in place by [emin, emax]
+        '''
+        self.exponents = filter_by_range(self.exponents, emin, emax)
+
+    def filter_by_exponent_range(self, emin=None, emax=None):
+        ''' Return a new channel where exponents are filtered by [emin, emax]
+        '''
+        new = self.copy()
+        new.filter_by_exponent_range_(emin, emax)
+        return new
+
+    def filter_by_index_(self, exponent_idx):
+        ''' Filter exponents in place by index
+        '''
+        index = to_int_list(exponent_idx)
+        if not set(index).issubset(set(range(self.nexponent))):
+            raise IndexError('exponent_idx contains index out of range.')
+        self.exponents = self.exponents[index]
+
+    def filter_by_index(self, exponent_idx):
+        ''' Return a new channel where exponents are filtered by index
+        '''
+        new = self.copy()
+        new.filter_by_index_(exponent_idx)
+        return new
+
     def get_ratio_penalty(self, ratio_min=None, strength=None):
         ''' Penalty on two exponents being too close.
 
@@ -173,9 +225,17 @@ class Channel:
 
         es = np.sort(self.exponents)
         ratio = es[1:] / es[:-1]
-        gap = ratio_min - ratio
-        violation = gap[gap > 0]
-        penalty = strength * sum(violation**2)
+        # gap = ratio_min - ratio
+        # violation = gap[gap > 0]
+        # penalty = strength * sum(violation**2)
+
+        ''' width = 1e-2 and strength = 10. rougthly leads to 1 mHa penalty when
+            ratio = ratio_min-0.01. For example, ratio_min = 1.70 and ratio = 1.69.
+        '''
+        width = 1e-2
+        violation = np.log(ratio_min) - np.log(ratio)
+        smooth_violation = width * softplus(violation / width)
+        penalty = strength * sum(smooth_violation**2)
 
         return penalty
 
@@ -297,7 +357,7 @@ class ETB(Channel):
 
     @property
     def beta(self):
-        if self.n > 1:
+        if self._nexponent > 1:
             return soft_clip(self._parameters[1], self.beta_min, self.beta_max, self.beta_k)
         else:
             return 1.
@@ -306,10 +366,14 @@ class ETB(Channel):
     def exponents(self):
         ''' Return a list of exponents
         '''
-        if self.n == 0:
+        if self._nexponent == 0:
             return np.asarray([], dtype=float)
-        exponents = ETB_to_exponents(self.n, self.amin, self.beta)
+        exponents = ETB_to_exponents(self._nexponent, self.amin, self.beta)
         return np.sort(exponents)[::-1]
+
+    @exponents.setter
+    def exponents(self, value):
+        Channel.exponents.fset(self, value)
 
 
 def exponents_to_ETB(exponents):
@@ -388,6 +452,10 @@ class Full(Channel):
         ''' Return a list of exponents
         '''
         return soft_log_clip(self._parameters, self.amin_min, self.amax_max, self.aminmax_k)
+
+    @exponents.setter
+    def exponents(self, value):
+        Channel.exponents.fset(self, value)
 
 
 if __name__ == '__main__':
