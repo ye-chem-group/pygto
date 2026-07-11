@@ -284,6 +284,21 @@ class Channel(StreamObject):
     get_basis_str = get_basis_str_nwchem
     dump_basis = dump_basis_nwchem
 
+    def dump_chkfile(self, chkfile, prefix=None):
+        from pygto.lib import chkfile_helper
+        if prefix is None: prefix = 'channel'
+        chkfile_helper.dump(chkfile, f'{prefix}/type', self.__class__.__name__.lower())
+        chkfile_helper.dump(chkfile, f'{prefix}/l', self.l)
+        chkfile_helper.dump(chkfile, f'{prefix}/exponents', self.exponents)
+
+    @classmethod
+    def init_from_chkfile(cls, chkfile, prefix=None):
+        from pygto.lib import chkfile_helper
+        if prefix is None: prefix = 'channel'
+        l = int(chkfile_helper.load(chkfile, f'{prefix}/l'))
+        exponents = np.asarray(chkfile_helper.load(chkfile, f'{prefix}/exponents'), dtype=float)
+        return cls(l, exponents)
+
 
 def exponents_from_pyscf_basis_by_l(basis, l, repeat_thr=REPEAT_THR, emin=None, emax=None):
     ''' Extract exponents of a given angular momentum from a PySCF basis

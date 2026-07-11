@@ -1,11 +1,11 @@
 import sys
+import h5py
 import numpy as np
 
 from contextlib import contextmanager
 
 from pygto.basis.channel import ETB, Full
-from pygto.lib import StreamObject, to_int_list
-
+from pygto.lib import StreamObject, to_int_list, chkfile_helper
 
 
 class BasisSpec(StreamObject):
@@ -482,6 +482,79 @@ class BasisSpec(StreamObject):
 
     get_basis_str = get_basis_str_nwchem
     dump_basis = dump_basis_nwchem
+
+    def dump_chkfile(self, chkfile, prefix=None):
+        ''' Save BasisSpec data to chkfile.
+
+            prefix : str
+                Key in h5py file. Default is None, which uses "spec".
+                - `spec.atm` is stored as "[prefix]/atm"
+                - `spec.channels` is stored as "[prefix]/channel_i" for i = 0, 1, ...
+        '''
+        if prefix is None: prefix = 'spec'
+
+        # Remove old channels when overwriting a spec with fewer channels.
+        with h5py.File(chkfile, 'a') as f:
+            if prefix in f:
+                del f[prefix]
+            f.require_group(prefix)
+
+        if self.atm is not None:
+            chkfile_helper.dump(chkfile, f'{prefix}/atm', self.atm)
+        for i,c in enumerate(self.channels):
+            c.dump_chkfile(chkfile, f'{prefix}/channel_{i}')
+
+    @classmethod
+    def init_from_chkfile(cls, chkfile, prefix=None, channel_type=None):
+        ''' Initialize a BasisSpec object from chkfile.
+
+            prefix : str
+                Key in h5py file. Default is None, which uses "spec".
+                - `spec.atm` is loaded from "[prefix]/atm". If nonexist, `spec.atm`
+                   is set to None.
+                - `spec.channels` is loaded from "[prefix]/channel_i" for i = 0, 1, ...
+            channel_type : str
+                Converting loaded channels to the specified type. Accepted values
+                are "etb" and "full" (case insensitive). Default is None, which means
+                using the saved channel type without conversion.
+        '''
+        channel_types = {
+            'etb': ETB,
+            'full': Full
+        }
+        if channel_type is not None:
+            try:
+                channel_type = channel_type.lower()
+                channel_types[channel_type]
+            except (AttributeError, KeyError):
+                raise ValueError('Channel type must be "etb" or "full" (case insensitive).')
+
+        if prefix is None: prefix = 'spec'
+        try:
+            atm = chkfile_helper.load(chkfile, f'{prefix}/atm')
+        except KeyError:
+            atm = None
+
+        with h5py.File(chkfile, 'r') as f:
+            channel_idxs = sorted([
+                int(x.replace('channel_', ''))
+                for x in list(f[prefix]) if x.startswith('channel_')
+            ])
+
+        channels = []
+        for channel_idx in channel_idxs:
+            channel_prefix = f'{prefix}/channel_{channel_idx}'
+            saved_channel_type = chkfile_helper.load(chkfile, f'{channel_prefix}/type')
+            try:
+                Channel = channel_types[saved_channel_type.lower()]
+            except (AttributeError, KeyError):
+                raise ValueError('Unknown channel type in chkfile: %s' % saved_channel_type)
+            channels.append(Channel.init_from_chkfile(chkfile, channel_prefix))
+
+        spec = cls(channels).set(atm=atm)
+        if channel_type is not None:
+            spec.convert_to_(channel_type)
+        return spec
 
 
 if __name__ == '__main__':
