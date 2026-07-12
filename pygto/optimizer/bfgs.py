@@ -11,7 +11,7 @@ class BFGS(Optimizer):
 
     support_grad = True
 
-    def __init__(self, spec, cost_func, grad_func=None, verbose=4):
+    def __init__(self, spec, cost_func, grad_func=None, verbose=None):
         super().__init__(spec, cost_func, verbose=verbose)
 
         self.grad_func = grad_func

@@ -8,7 +8,7 @@ from pygto.optimizer.optimizer import Optimizer
 
 class NelderMead(Optimizer):
 
-    def __init__(self, spec, cost_func, verbose=4):
+    def __init__(self, spec, cost_func, verbose=None):
         super().__init__(spec, cost_func, verbose=verbose)
 
         self.initial_step_abs = 2.5e-4

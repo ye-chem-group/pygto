@@ -29,6 +29,7 @@ class Optimizer(StreamObject):
 
         self.ratio_min = 1.7
         self.ratio_penalty_strength = 10.   # Hartree
+        self.ratio_penalty_warning_thresh = 1e-6    # 1 micro-Hartree
 
         # Attributes set by `kernel`. Do not set them.
         self.parameters = None
@@ -71,6 +72,10 @@ class Optimizer(StreamObject):
 
     def format_cost(self):
         return f'cost= {self.cost:.10f}'
+
+    def ratio_penalty_warning(self):
+        if self.ratio_penalty > self.ratio_penalty_warning_thresh:
+            self.log_warn('ratio_penalty= %.2e' % self.ratio_penalty)
 
     def get_cost(self, parameters):
         self.feval += 1
@@ -223,8 +228,8 @@ class Optimizer(StreamObject):
         if self.verbose >= 4:   # info
             self.spec.dump_basis(stdout=self.stdout)
         self.log_info('')
-        self.log_info('Init %s  ratio_penalty= %.2e' % (self.format_cost(), self.ratio_penalty))
-        self.log_info('')
+        self.log_note('Init %s' % (self.format_cost()))
+        self.ratio_penalty_warning()
 
     def print_step(self, df, dx):
         if self.gradient is None:
@@ -238,20 +243,18 @@ class Optimizer(StreamObject):
                 'cycle= %d  %s  df= % .2e  dx= %.2e  |g|= %.2e  stat= %s'
                 % (self.cycle, (self.format_cost()), df, dx, gmax, self.status)
             )
-        if self.ratio_penalty > 1e-6:    # 1 micro-Hartree
-            self.log_warn('ratio_penalty= %.2e' % self.ratio_penalty)
+        self.ratio_penalty_warning()
 
     def print_final(self):
-        self.log_info('')
         if self.converged:
             self.log_note('Convergence is reached for %s' % (self.__class__.__name__))
         else:
-            self.log_warn('Convergence is not reached for %s: %s' %
-                          (self.__class__.__name__, self.stop_reason))
-        self.log_info('')
+            self.log_warn('Convergence is not reached for %s: %s' % (
+                self.__class__.__name__, self.stop_reason
+            ))
+        self.log_note('Final %s' % (self.format_cost()))
+        self.ratio_penalty_warning()
         self.log_info('Final basis:')
         if self.verbose >= 4:   # info
             self.spec.dump_basis(stdout=self.stdout)
         self.log_info('')
-        self.log_info('Final %s  ratio_penalty= %.2e' % (self.format_cost(), self.ratio_penalty))
-        self.log_note('')

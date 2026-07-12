@@ -62,12 +62,18 @@ class ScheduledOptimizer(StreamObject):
 
         self.set_stages(stages)
 
+        # attributes with default
+        self.verbose_optimizer = None
+
         # attributes set by kernel; do not modify
         self.optimizers = []
         self.history = []
         self.feval = 0
         self.converged = False
         self.stop_reason = None
+
+    def format_cost(self):
+        return f'cost= {self.cost:.10f}'
 
     @property
     def stages(self):
@@ -93,7 +99,8 @@ class ScheduledOptimizer(StreamObject):
             raise ValueError('Stages must not be empty.')
 
         # validate keys for each stage
-        allowed_keys = {'optimizer', 'optimizer_settings', 'spec_settings', 'cost_func', 'grad_func'}
+        allowed_keys = {'optimizer', 'optimizer_settings', 'spec_settings', 'cost_func',
+                        'grad_func'}
         for istage,stage in enumerate(stages):
             if 'optimizer' not in stage:
                 raise KeyError('stages[%d] does not have "optimizer" key.' % (istage))
@@ -124,14 +131,18 @@ class ScheduledOptimizer(StreamObject):
         self.set(**kwargs)
 
         self.initialize()
+        self.dump_flags()
+        self.print_init()
+
+        verbose_optimizer = self.verbose_optimizer
+        if verbose_optimizer is None: verbose_optimizer = max(2, self.verbose-2)
 
         for istage,stage in enumerate(self.stages):
             spec = self.spec
 
             OPT = stage['optimizer']
 
-            self.log_note('Stage %d/%d'%(istage+1, len(self.stages)))
-            self.print_stage_info(stage)
+            self.print_stage_info(istage, stage)
 
             self.apply_spec_settings_(spec, stage)
 
@@ -141,7 +152,7 @@ class ScheduledOptimizer(StreamObject):
                 opt = OPT(spec, cost_func, grad_func)
             else:
                 opt = OPT(spec, cost_func)
-            opt.set(verbose=self.verbose, stdout=self.stdout)
+            opt.set(verbose=verbose_optimizer, stdout=self.stdout)
 
             self.apply_optimizer_settings_(opt, stage)
 
@@ -191,23 +202,52 @@ class ScheduledOptimizer(StreamObject):
 
         return optimizer
 
-    def print_stage_info(self, stage):
-        self.log_note('optimizer= %s' % (stage['optimizer'].__name__))
-        self.log_info('optimizer_settings= %s' % (str(stage.get('optimizer_settings', None))))
-        self.log_info('spec_settings= %s' % (str(stage.get('spec_settings', None))))
+    def dump_flags(self):
+        self.log_info('\n')
+        self.log_info('******** %s ********' % (self.__class__.__name__))
+        self.log_info('stages= %s' % (str(self.stages)))
+        self.log_info('verbose_optimizer= %s' % (str(self.verbose_optimizer)))
         self.log_info('')
 
+    def print_stage_info(self, istage, stage):
+        self.log_note('Enter stage %d  optimizer= %s' % (
+            istage+1, stage['optimizer'].__name__
+        ))
+        self.log_info('optimizer_settings= %s' % (
+            str(stage.get('optimizer_settings', None
+        ))), indent=1)
+        self.log_info('spec_settings= %s' % (str(stage.get('spec_settings', None))), indent=1)
+
+    def print_init(self):
+        self.log_info('')
+        self.log_info('Init basis:')
+        if self.verbose >= 4:   # info
+            self.spec.dump_basis(stdout=self.stdout)
+        self.log_info('')
+        self.log_note('Init %s' % (self.format_cost()))
+
     def print_step(self, istage, opt):
-        self.log_note('stage= %d  cost= %.12f  cycle= %d  feval= %d  converged= %s' %
-                      (istage+1, self.cost, opt.cycle, opt.feval, str(opt.converged)))
-        self.log_note('')
+        if opt.converged:
+            self.log_note('Leaving stage %d  %s  cycle= %d  feval= %d  converged= %s' % (
+                istage+1, self.format_cost(), opt.cycle, opt.feval, str(opt.converged)
+            ))
+        else:
+            self.log_note('Leaving stage %d  %s  cycle= %d  feval= %d  converged= %s  '
+                'stop_reason= %s'% (istage+1, self.format_cost(), opt.cycle, opt.feval,
+                str(opt.converged), opt.stop_reason))
 
     def print_final(self):
         if self.converged:
             self.log_note('Convergence is reached for %s' % (self.__class__.__name__))
         else:
-            self.log_warn('Convergence is not reached for %s: %s' %
-                          (self.__class__.__name__, self.stop_reason))
+            self.log_warn('Convergence is not reached for %s: %s' % (
+                self.__class__.__name__, self.stop_reason
+            ))
+        self.log_note('Final %s' % (self.format_cost()))
+        self.log_info('Final basis:')
+        if self.verbose >= 4:   # info
+            self.spec.dump_basis(stdout=self.stdout)
+        self.log_info('')
 
     def initialize(self):
         self.optimizers = []
@@ -215,6 +255,7 @@ class ScheduledOptimizer(StreamObject):
         self.feval = 0
         self.converged = False
         self.stop_reason = None
+        self.cost = self.cost_func(self.spec)
 
     def save_history(self, opt, stage):
         self.optimizers.append(opt)
