@@ -3,7 +3,7 @@ import copy
 import numpy as np
 
 from pygto.lib import StreamObject, Lattice
-from pygto.optimizer import ScheduledOptimizer
+from pygto.optimizer import ScheduledOptimizer, Optimizer
 
 
 class MaterialConstraintAtomicOptimization(StreamObject):
@@ -20,6 +20,8 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         self.verbose_optimizer = None
 
         self.basis_to_save = None
+
+        self.chkfile = None
 
         # attributes set by kernel; do not modify
         self.cost = None
@@ -38,6 +40,7 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         self.log_info('lattice_scaling_target_penalty= %.15g' % self.lattice_scaling_target_penalty)
         self.log_info('verbose_optimizer= %s' % self.verbose_optimizer)
         self.log_info('basis_to_save= %s' % self.basis_to_save)
+        self.log_info('chkfile= %s' % (str(self.chkfile)))
         self.log_info('')
 
     def initialize(self):
@@ -150,6 +153,8 @@ class MaterialConstraintAtomicOptimization(StreamObject):
                 with open(self.basis_to_save, 'w') as f:
                     spec.dump_basis(stdout=f)
 
+            self.dump_chkfile(spec)
+
             if np.isclose(scale, 1.):
                 break
 
@@ -237,6 +242,8 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         if self.verbose >= 3:
             self.spec.dump_basis(stdout=self.stdout)
         self.log_note('')
+
+    dump_chkfile = Optimizer.dump_chkfile
 
 MCAO = MaterialConstraintAtomicOptimization
 

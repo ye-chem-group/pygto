@@ -2,6 +2,7 @@ import sys
 import numpy as np
 
 from pygto.lib import StreamObject, FloatSum
+from pygto.lib import chkfile_helper
 
 
 class Optimizer(StreamObject):
@@ -30,6 +31,8 @@ class Optimizer(StreamObject):
         self.ratio_min = 1.7
         self.ratio_penalty_strength = 10.   # Hartree
         self.ratio_penalty_warning_thresh = 1e-6    # 1 micro-Hartree
+
+        self.chkfile = None # save most recent spec
 
         # Attributes set by `kernel`. Do not set them.
         self.parameters = None
@@ -153,6 +156,7 @@ class Optimizer(StreamObject):
         self.log_info('xtol= %.3e' % self.xtol)
         self.log_info('gtol= %.3e' % self.gtol)
         self.log_info('max_cycle= %d' % self.max_cycle)
+        self.log_info('chkfile= %s' % (str(self.chkfile)))
         self.log_info('')
 
     def kernel(self, **kwargs):
@@ -193,6 +197,7 @@ class Optimizer(StreamObject):
 
                 self.print_step(df, dx)
                 self.save_history(df, dx)
+                self.dump_chkfile(spec)
 
                 if self.status in ('failed', 'line_search_failed', 'evaluation_failed'):
                     self.stop_reason = self.status
@@ -229,7 +234,7 @@ class Optimizer(StreamObject):
             self.spec.dump_basis(stdout=self.stdout)
         self.log_info('')
         self.log_note('Init %s' % (self.format_cost()))
-        self.ratio_penalty_warning()
+        if hasattr(self, 'ratio_penalty'): self.ratio_penalty_warning()
 
     def print_step(self, df, dx):
         if self.gradient is None:
@@ -243,7 +248,7 @@ class Optimizer(StreamObject):
                 'cycle= %d  %s  df= % .2e  dx= %.2e  |g|= %.2e  stat= %s'
                 % (self.cycle, (self.format_cost()), df, dx, gmax, self.status)
             )
-        self.ratio_penalty_warning()
+        if hasattr(self, 'ratio_penalty'): self.ratio_penalty_warning()
 
     def print_final(self):
         if self.converged:
@@ -253,8 +258,14 @@ class Optimizer(StreamObject):
                 self.__class__.__name__, self.stop_reason
             ))
         self.log_note('Final %s' % (self.format_cost()))
-        self.ratio_penalty_warning()
+        if hasattr(self, 'ratio_penalty'): self.ratio_penalty_warning()
         self.log_info('Final basis:')
         if self.verbose >= 4:   # info
             self.spec.dump_basis(stdout=self.stdout)
         self.log_info('')
+
+    def dump_chkfile(self, spec=None, chkfile=None, prefix=None):
+        if chkfile is None: chkfile = self.chkfile
+        if chkfile is not None:
+            if spec is None: spec = self.spec
+            spec.dump_chkfile(chkfile, prefix=prefix)
