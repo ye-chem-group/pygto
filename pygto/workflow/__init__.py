@@ -1,2 +1,2 @@
 from .mcao import MCAO
-from .tcao import TCAO
+from .tcao import TCAO, ChannelReduction
