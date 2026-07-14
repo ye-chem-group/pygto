@@ -147,6 +147,13 @@ class BasisSpec(StreamObject):
         spec.parameters = value
         return spec
 
+    def with_channels(self, channels):
+        ''' Return a new BasisSpec with updated parameters
+        '''
+        spec = self.copy()
+        spec.channels = channels
+        return spec
+
     @property
     def active_channel(self):
         return self._active_channel
@@ -246,7 +253,7 @@ class BasisSpec(StreamObject):
     def structure(self):
         ''' Return basis structureure (e.g., "[4s,3p,2d,1f]")
         '''
-        return ' '.join([c.structure for c in self.channels])
+        return ' '.join([c.structure for c in self.channels if c.nbas > 0])
 
     @property
     def nao(self):

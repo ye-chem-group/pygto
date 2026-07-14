@@ -66,7 +66,7 @@ class TargetCostAtomicOptimization(StreamObject):
         self.log_info('chkfile= %s' % (str(self.chkfile)))
         self.log_info('')
 
-    def filter_rigid(self, spec, ftol=None, select_channel=None):
+    def filter_rigid(self, spec, ftol=None, select_channel=None, cost_init=None):
         if ftol is None: ftol = self.ftol
 
         if select_channel is None:
@@ -76,7 +76,8 @@ class TargetCostAtomicOptimization(StreamObject):
 
         cost_func = self.cost_func
         cost = cost_func(spec)
-        cost_init = cost if self.cost_init is None else self.cost_init
+        if cost_init is None:
+            cost_init = cost if self.cost_init is None else self.cost_init
 
         self.log_debug('Enter RigidTrim cycle  structure= %s  cost= %.10f  delta_f= %.3e' % (
             spec.structure, cost, cost-cost_init), indent=1)
@@ -136,14 +137,15 @@ class TargetCostAtomicOptimization(StreamObject):
         fs = [self.cost_func(spec1) for spec1 in candidates]
         return [candidates[i] for i in np.argsort(fs)[:ncandidate]]
 
-    def filter_optimization(self, spec, select_channel=None, force_accept=False):
+    def filter_optimization(self, spec, select_channel=None, cost_init=None, force_accept=False):
         if select_channel is None:
             select_channel = list(range(spec.nchannel))
         else:
             select_channel = to_int_list(select_channel)
 
         cost = self.cost_func(spec)
-        cost_init = cost if self.cost_init is None else self.cost_init
+        if cost_init is None:
+            cost_init = cost if self.cost_init is None else self.cost_init
         self.log_debug('Enter OptTrim cycle  structure= %s  cost= %.10f  delta_f= %.3e' % (
             spec.structure, cost, cost-cost_init), indent=1)
 
@@ -154,9 +156,8 @@ class TargetCostAtomicOptimization(StreamObject):
 
             self.log_debug('Channel= %d  l= %d' % (channel_idx, channel.l), indent=2)
 
-            if channel.nbas <= 1:
-                # TODO: handle 1 exponent separately
-                self.log_debug('Skip channel because it has only one exponent left.', indent=3)
+            if channel.nbas == 0:
+                self.log_debug('Skip empty channel.', indent=3)
                 continue
 
             if self.candidate_generation.lower().startswith('heur'):
