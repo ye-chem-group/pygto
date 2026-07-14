@@ -461,7 +461,8 @@ class BasisSpec(StreamObject):
             s.append( f'#BASIS SET: ({struct}) -> [{struct}]' )
 
         for c in self.channels:
-            s.append( c.get_basis_str(atm=atm, header=False) )
+            if c.nbas > 0:  # avoid adding empty lines for empty channels
+                s.append( c.get_basis_str(atm=atm, header=False) )
 
         return '\n'.join(s)
 

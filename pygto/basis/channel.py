@@ -337,6 +337,11 @@ def add_one_exponent_candidates(es, upscale=1.2, downscale=0.8, emin=0.01):
     es = np.sort(es)
     ne = es.size
 
+    # handle empty channel
+    if ne == 0:
+        elow = max(emin, 0.05)
+        return [5.], [1.], [elow*3.], [elow]
+
     # add a high exponent
     es_high = np.zeros(ne + 1)
     es_high[:ne] = es * downscale
@@ -362,6 +367,13 @@ def add_one_exponent_candidates(es, upscale=1.2, downscale=0.8, emin=0.01):
 
 def remove_one_exponent_candidates(es, upscale=1.2, downscale=0.8):
     es = np.sort(es)
+
+    # handle one-exponent and empty channels
+    if len(es) <= 1:
+        if len(es) == 1:
+            return [np.asarray([], dtype=es.dtype)]
+        else:
+            return []   # no candidates
 
     # remove a high exponent
     es_high = es[:-1] * upscale
