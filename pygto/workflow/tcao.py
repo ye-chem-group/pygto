@@ -94,12 +94,8 @@ class TargetCostAtomicOptimization(StreamObject):
             ])
             mask = delta_fs > ftol
             index = np.where(mask)[0]
-            if len(index) == 0: # no exponents left
-                raise RuntimeError('All exponents are below threshold in Channel= %d l= %d; '
-                                   'refusing to remove entire channel.' %
-                                   (channel_idx, channel.l))
 
-            if self.force_block_filter:
+            if self.force_block_filter and len(index) > 0:
                 index = list(range(index.min(), index.max()+1))
                 mask[index] = True
 
@@ -112,8 +108,12 @@ class TargetCostAtomicOptimization(StreamObject):
                 self.log_debug('No exponent to discard.', indent=3)
                 continue
 
-            self.log_debug('Keep %d exponents: %s' % (
-                len(index), ', '.join([f'{x:.6g}' for x in channel.exponents[index]])), indent=3)
+            if len(index) > 0:
+                self.log_debug('Keep %d exponents: %s' % (
+                    len(index), ', '.join([f'{x:.6g}' for x in channel.exponents[index]])
+                ), indent=3)
+            else:
+                self.log_debug('All exponents are discarded.', indent=3)
 
             spec.filter_channel_by_index_(channel_idx, index)
             nochange = False
@@ -254,6 +254,9 @@ class TargetCostAtomicOptimization(StreamObject):
         if verbose is None: verbose = max(2, self.verbose-3)
 
         with spec.temporary_active_channel(active_channel):
+            if spec.nparam == 0:    # The selected channels contain nothing to optimize.
+                return float(cost_func(spec)), spec
+
             opt = ScheduledOptimizer(spec, cost_func).set(verbose=verbose)
             cost, spec = opt.kernel()
 
