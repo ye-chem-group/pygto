@@ -1,4 +1,3 @@
-import sys
 import numpy as np
 
 from pygto.lib import StreamObject, to_int_list
@@ -40,10 +39,10 @@ class TargetCostAtomicOptimization(StreamObject):
         # attribute with default
         self.max_cycle = 10
         self.init_ftol_rescaling = 0.1
-        self.opt_ftol_rescaling = 10.
-        self.ftol_exponent = None
         self.force_block_filter = True
         self.freeze_and_thaw = True
+        self.candidate_generation = 'heuristic'  # Options: heuristic, rigid
+        self.candidate_maxnum = 2
         self.verbose_optimizer = None
 
         self.chkfile = None
@@ -59,30 +58,34 @@ class TargetCostAtomicOptimization(StreamObject):
         self.log_info('ftol= %.10g' % self.ftol)
         self.log_info('max_cycle= %d' % self.max_cycle)
         self.log_info('init_ftol_rescaling= %.10g' % self.init_ftol_rescaling)
-        self.log_info('opt_ftol_rescaling= %.10g' % self.opt_ftol_rescaling)
-        if self.ftol_exponent is not None:
-            self.log_info('ftol_exponent= %.10g' % self.ftol_exponent)
         self.log_info('force_block_filter= %s' % (str(self.force_block_filter)))
         self.log_info('freeze_and_thaw= %s' % (str(self.freeze_and_thaw)))
+        self.log_info('candidate_generation= %s' % (self.candidate_generation))
+        self.log_info('candidate_maxnum= %d' % (self.candidate_maxnum))
         self.log_info('verbose_optimizer= %s' % (str(self.verbose_optimizer)))
         self.log_info('chkfile= %s' % (str(self.chkfile)))
         self.log_info('')
 
-    def filter_rigid(self, spec, ftol=None, ftol_exponent=None, force_block_filter=None):
+    def filter_rigid(self, spec, ftol=None, select_channel=None):
         if ftol is None: ftol = self.ftol
-        if ftol_exponent is None: ftol_exponent = self.ftol_exponent
-        if ftol_exponent is not None: ftol = min(ftol, ftol_exponent)
-        if force_block_filter is None: force_block_filter = self.force_block_filter
 
-        structure_old = spec.structure
+        if select_channel is None:
+            select_channel = list(range(spec.nchannel))
+        else:
+            select_channel = to_int_list(select_channel)
 
         cost_func = self.cost_func
-        cost_init = cost_func(spec) if self.cost_init is None else self.cost_init
+        cost = cost_func(spec)
+        cost_init = cost if self.cost_init is None else self.cost_init
 
-        self.log_debug('')
-        self.log_debug('Find exponents to keep with ftol= %.3e' % ftol, indent=1)
+        self.log_debug('Enter RigidTrim cycle  structure= %s  cost= %.10f  delta_f= %.3e' % (
+            spec.structure, cost, cost-cost_init), indent=1)
 
+        nochange = True
         for channel_idx,channel in enumerate(spec.channels):
+            if not channel_idx in select_channel:
+                continue
+
             self.log_debug('Channel= %d  l= %d' % (channel_idx, channel.l), indent=2)
 
             delta_fs = np.asarray([
@@ -96,7 +99,7 @@ class TargetCostAtomicOptimization(StreamObject):
                                    'refusing to remove entire channel.' %
                                    (channel_idx, channel.l))
 
-            if force_block_filter:
+            if self.force_block_filter:
                 index = list(range(index.min(), index.max()+1))
                 mask[index] = True
 
@@ -113,85 +116,102 @@ class TargetCostAtomicOptimization(StreamObject):
                 len(index), ', '.join([f'{x:.6g}' for x in channel.exponents[index]])), indent=3)
 
             spec.filter_channel_by_index_(channel_idx, index)
+            nochange = False
 
-        nochange = structure_old == spec.structure
         if not nochange:
-            self.log_debug('Basis structure change: %s -> %s' % (structure_old, spec.structure),
-                          indent=1)
+            cost, spec = self.optimize_candidate(spec, active_channel=select_channel)
+
+        self.log_debug('Leaving RigidTrim cycle  structure= %s  cost= %.10f  delta_f= %.3e' % (
+            spec.structure, cost, cost-cost_init), indent=1)
         self.log_debug('')
 
-        return spec, nochange
+        return cost, spec, nochange
 
-    def filter_optimization(self, spec, cost_func=None, cost_init=None, ftol=None,
-                            ftol_rescaling=None, freeze_and_thaw=None, select_channel=None,
-                            force_accept=False):
-        structure_old = spec.structure
+    def _candidates_by_heuristic(self, spec, channel_idx):
+        return spec.remove_one_exponent_candidates(channel_idx)
 
-        if cost_func is None: cost_func = self.cost_func
-        if cost_init is None: cost_init = self.cost_init
-        if ftol is None: ftol = self.ftol
-        if ftol_rescaling is None: ftol_rescaling = self.opt_ftol_rescaling
-        ftol_filter = ftol * ftol_rescaling
-        if freeze_and_thaw is None: freeze_and_thaw = self.freeze_and_thaw
+    def _candidates_generation_rigid(self, spec, channel_idx):
+        ncandidate = max(1,self.candidate_maxnum)
+        candidates = spec.remove_one_exponent_candidates_rigid(channel_idx)
+        fs = [self.cost_func(spec1) for spec1 in candidates]
+        return [candidates[i] for i in np.argsort(fs)[:ncandidate]]
 
+    def filter_optimization(self, spec, select_channel=None, force_accept=False):
         if select_channel is None:
-            select_channel = range(spec.nchannel)
+            select_channel = list(range(spec.nchannel))
         else:
             select_channel = to_int_list(select_channel)
 
-        self.log_debug('')
-        if force_accept:
-            self.log_debug('Find exponents for removing tests', indent=1)
-        else:
-            self.log_debug('Find exponents for removing tests with ftol= %.3e' % ftol, indent=1)
+        cost = self.cost_func(spec)
+        cost_init = cost if self.cost_init is None else self.cost_init
+        self.log_debug('Enter OptTrim cycle  structure= %s  cost= %.10f  delta_f= %.3e' % (
+            spec.structure, cost, cost-cost_init), indent=1)
 
+        nochange = True
         for channel_idx,channel in enumerate(spec.channels):
             if not channel_idx in select_channel:
                 continue
 
             self.log_debug('Channel= %d  l= %d' % (channel_idx, channel.l), indent=2)
 
-            delta_fs = np.asarray([
-                cost_func(spec1) - cost_init
-                for spec1 in spec.remove_one_exponent_candidates_rigid(channel_idx)
-            ])
-            idx_min = delta_fs.argmin()
-            delta_f = delta_fs[idx_min]
-            if force_accept or delta_f < ftol_filter:
-                exponent_index = [i for i in range(channel.nexponent) if i != idx_min]
-                spec1 = spec.filter_channel_by_index(channel_idx, exponent_index)
-                if freeze_and_thaw:
-                    cost, spec1 = self.optimize_candidate(spec1, cost_func=cost_func,
-                                                          active_channel=channel_idx)
-                else:
-                    cost, spec1 = self.optimize_candidate(spec1, cost_func=cost_func)
-                delta_f = cost - cost_init
-                if force_accept:
-                    spec = spec1
-                    status = 'forced-accepted'
-                elif delta_f < ftol:
-                    spec = spec1
-                    status = 'accepted'
-                else:
-                    status = 'rejected'
-                self.log_debug('Remove exponent= %.3e  cost= %.10f  delta_f= %.3e  status= %s' %
-                              (channel.exponents[idx_min], cost, delta_f, status), indent=3)
-            else:
-                self.log_debug('No exponent to test removing.', indent=3)
+            if channel.nbas <= 1:
+                # TODO: handle 1 exponent separately
+                self.log_debug('Skip channel because it has only one exponent left.', indent=3)
+                continue
 
-        nochange = structure_old == spec.structure
-        if not nochange:
-            self.log_debug('Basis structure change: %s -> %s' % (structure_old, spec.structure),
-                          indent=1)
+            if self.candidate_generation.lower().startswith('heur'):
+                candidates = self._candidates_by_heuristic(spec, channel_idx)
+            elif self.candidate_generation.lower().startswith('rig'):
+                candidates = self._candidates_generation_rigid(spec, channel_idx)
+            else:
+                raise ValueError('Unknown candidate generation method %s' % (
+                    str(self.candidate_generation)))
+
+            idx_min = None
+            cost_min = float('inf')
+            for idx_cand,spec1 in enumerate(candidates):
+                if self.freeze_and_thaw:
+                    cost1, spec1 = self.optimize_candidate(spec1, active_channel=channel_idx)
+                else:
+                    cost1, spec1 = self.optimize_candidate(spec1)
+                delta_f1 = cost1 - cost_init
+                status = 'acceptable' if delta_f1 < self.ftol else 'rejected'
+                self.log_debug('Candidate #%d  cost= %.10f  delta_f= %.3e  status= %s' % (
+                    idx_cand+1, cost1, delta_f1, status), indent=3)
+                self.log_debug('Exponents= %s' % (
+                    ', '.join([f'{x:.4g}' for x in spec1.channels[channel_idx].exponents])
+                ), indent=4)
+                if cost1 < cost_min:
+                    idx_min = idx_cand
+                    cost_min = cost1
+                    spec_min = spec1
+
+            delta_f_min = cost_min - cost_init
+            if force_accept or delta_f_min < self.ftol:
+                nochange = False
+                spec = spec_min
+                cost = cost_min
+                self.log_debug('Accepting candidate #%d  cost= %.10f  delta_f= %.3e' % (
+                    idx_min+1, cost, cost-cost_init
+                ), indent=3)
+            else:
+                self.log_debug('No candidate is accepted', indent=3)
+
+        if not nochange and self.freeze_and_thaw:
+            cost, spec = self.optimize_candidate(spec, active_channel=select_channel)
+
+        self.log_debug('Leaving OptTrim cycle  structure= %s  cost= %.10f  delta_f= %.3e' % (
+            spec.structure, cost, cost-cost_init), indent=1)
         self.log_debug('')
 
-        return spec, nochange
+        return cost, spec, nochange
 
     def initialize(self):
         spec = self.spec.copy()
         ftol_init = self.ftol*self.init_ftol_rescaling
-        spec = self.filter_rigid(spec, ftol=ftol_init)[0]
-        self.cost_init, spec = self.optimize_candidate(spec)
+        self.cost_init, spec, nochange = self.filter_rigid(spec, ftol=ftol_init)
+        if nochange:    # force optimization if not done in `filter_rigid`
+            self.cost_init, spec = self.optimize_candidate(spec)
         self.cost = self.cost_init
         for i,c in enumerate(spec.channels):
             self.spec.replace_channel_(i, c)
@@ -208,15 +228,11 @@ class TargetCostAtomicOptimization(StreamObject):
         self.converged = False
         for cycle in range(1, self.max_cycle+1):
 
-            spec = self.filter_rigid(spec)[0]
-            self.cost, spec = self.optimize_candidate(spec)
+            # step 1: a rapid rigid filter by exponentwise error
+            self.cost, spec, nochange = self.filter_rigid(spec)
 
-            spec, nochange = self.filter_optimization(spec)
-            if self.freeze_and_thaw:
-                # Optimizing all channels together
-                self.cost, spec = self.optimize_candidate(spec)
-            else:
-                self.cost = self.cost_func(spec)
+            # step 2: a dedicated optimization-based filter
+            self.cost, spec, nochange = self.filter_optimization(spec)
 
             self.print_step(cycle, spec)
             self.dump_chkfile(spec)
@@ -244,16 +260,17 @@ class TargetCostAtomicOptimization(StreamObject):
         return cost, spec
 
     def print_init(self):
-        self.log_note('')
         self.log_note('Init basis:')
         if self.verbose >= 3:
             self.spec.dump_basis(stdout=self.stdout)
         self.log_note('Init cost= %.10f  structure= %s' % (self.cost_init, self.spec.structure),
                       space=True)
+        self.log_debug('')
 
     def print_step(self, cycle, spec):
         self.log_info('TCAO cycle= %d  cost= %.10f  delta_f= %.3e  structure= %s' %
                       (cycle, self.cost, self.cost-self.cost_init, spec.structure))
+        self.log_debug('')
 
     def print_final(self):
         self.log_note('Final cost= %.10f  delta_f= %.3e  structure= %s' %
@@ -325,7 +342,8 @@ class ChannelReduction(TCAO):
         self.converged = []
         self.stop_reason = []
         self.results = []
-        self.cost_init = self.cost = self.cost_func(self.spec)
+        self.cost_init = self.cost_func(self.spec)
+        self.cost = None    # cost is intentionally not used for ChannelReduction
 
     def kernel(self, **kwargs):
         self.set(**kwargs)
@@ -341,35 +359,29 @@ class ChannelReduction(TCAO):
             channel_idxs = to_int_list(channel_idxs)
 
         if self.chkfile is not None:
-            spec.dump_chkfile(self.chkfile, prefix='spec')
+            self.spec.dump_chkfile(self.chkfile, prefix='spec')
 
         for channel_idx in channel_idxs:
             spec = self.spec.copy()
             spec._check_channel_idx(channel_idx)
 
-            cost_init = self.cost_func(spec)
-
-            self.log_note('')
             self.log_note('Series generation for Channel= %d  l= %d' % (
                 channel_idx, spec.channels[channel_idx].l
             ))
             self.log_note('Init channel structure= %s  cost= %.10f' % (
-                spec.channels[channel_idx].structure, cost_init
+                spec.channels[channel_idx].structure, self.cost_init
             ))
 
-            results = [ (spec.channels[channel_idx].copy(), cost_init, 0.) ]
+            results = [ (spec.channels[channel_idx].copy(), self.cost_init, 0.) ]
             self.dump_chkfile(spec.channels[channel_idx], channel_idx, first_pass=True)
 
             converged = False
             stop_reason = 'Only one exponent left'
             while spec.channels[channel_idx].nbas > 1:
-                # use a larger ftol to ensure filtering success
-                spec = self.filter_optimization(
-                    spec, cost_init=cost_init,
-                    force_accept=True, select_channel=channel_idx,
-                )[0]
-                cost = self.cost_func(spec)
-                df = cost - cost_init
+                cost, spec = self.filter_optimization(
+                    spec, force_accept=True, select_channel=channel_idx,
+                )[:2]
+                df = cost - self.cost_init
                 results.append( (spec.channels[channel_idx].copy(), cost, df) )
 
                 self.log_info('Current channel structure= %s  cost= %.10f  delta_f= %.3e' % (
@@ -378,7 +390,7 @@ class ChannelReduction(TCAO):
                 self.log_info('Current channel:')
                 if self.verbose >= 4:
                     spec.dump_channel_basis(channel_idx)
-                    self.log_info('')
+                self.log_info('')
 
                 self.dump_chkfile(spec.channels[channel_idx], channel_idx)
 
@@ -416,8 +428,8 @@ class ChannelReduction(TCAO):
         self.log_note('Init basis structure: %s  cost= %.10f' % (
             self.spec.structure, self.cost_init
         ))
-        self.log_info('Init basis:')
-        if self.verbose >= 4:
+        self.log_note('Init basis:')
+        if self.verbose >= 3:
             self.spec.dump_basis()
         self.log_info('')
 
@@ -480,13 +492,12 @@ if __name__ == '__main__':
     from pygto.basis import BasisSpec
     from pygto.optimizer import ScheduledOptimizer
     from pygto.lib.pyscf_helper import get_cost_func
-    from pyscf import gto, scf, cc
-    from pyscf.data.elements import chemcore
+    from pyscf import gto, scf
 
     atm = 'C'
     spin = 2
     fbas = 'cc-pvqz'
-    ftol = 1e-3
+    ftol = 1e-4
     pseudo = 'gth-hf-rev'
     valence_l = [0,1]
 
