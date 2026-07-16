@@ -10,6 +10,8 @@ class AuxiliaryBasisOptimization(TCAO):
     def __init__(self, spec, cost_func, ftol=1e-5, verbose=None):
         TCAO.__init__(self, spec, cost_func, ftol, verbose)
 
+        self.init_ftol_rescaling = 0.5
+
     def cost_func_full(self, spec):
         return self.cost_func(spec, True)
 
@@ -19,7 +21,9 @@ class AuxiliaryBasisOptimization(TCAO):
         self.cost_vec = self.cost_func_full(spec)[1]
         self.cost = self.cost_init
 
-        if self.cost_init > self.ftol:
+        ftol = self.ftol * self.init_ftol_rescaling
+
+        if self.cost_init > ftol:
             self.log_info('Enter AuxBasExpansion cycle cost= %.3e  structure= %s' % (
                 self.cost, spec.structure), indent=1)
             self.log_debug('costvec= %s' % (
@@ -43,7 +47,7 @@ class AuxiliaryBasisOptimization(TCAO):
                 self.log_debug('costvec= %s' % (
                     ' '.join(['%.3e'%x for x in cost_vec])), indent=3)
 
-                if cost < self.ftol:
+                if cost < ftol:
                     found = True
                     spec = spec1
                     break
@@ -56,7 +60,7 @@ class AuxiliaryBasisOptimization(TCAO):
 
             if not found:
                 self.log_error('Failed to generate an init basis with the desired ftol %.3e' % (
-                    self.ftol))
+                    ftol))
                 raise RuntimeError
 
             self.cost = cost
