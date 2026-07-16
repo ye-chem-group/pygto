@@ -1,7 +1,9 @@
 import numpy as np
+from .atomic_scf import atomic_scf_with_pure_l_config_
 
 
-def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, keep_l=None):
+def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, keep_l=None,
+                  config=None):
 
     import inspect
 
@@ -27,6 +29,8 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
         basis = spec.get_pyscf_basis(keep_l=keep_l)
         mol = get_mol(basis)
         mf = HF(mol)
+        if config is not None:
+            atomic_scf_with_pure_l_config_(mf, config)
         mf.kernel()
 
         if CORR is None:
@@ -48,7 +52,7 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
     return cost_func
 
 
-def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None,
+def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
                          corr=True, corr_settings=None, gamma_vjk=0.1):
     ''' Get the cost function for auxiliary basis optimization.
 
@@ -111,6 +115,8 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None,
     # get reference
     mol = get_mol(aobasis)
     mf_ref = HF(mol)
+    if config is not None:
+        atomic_scf_with_pure_l_config_(mf_ref, config)
     mf_ref.kernel()
     dm_ref = mf_ref.make_rdm1()
     nao = dm_ref.shape[-1]
@@ -130,6 +136,8 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None,
     def cost_func(spec, full_output=False):
         auxbasis = spec.get_pyscf_basis()
         mf = HF(mol).density_fit(auxbasis)
+        if config is not None:
+            atomic_scf_with_pure_l_config_(mf, config)
         mf.kernel()
 
         vj, vk = mf.get_jk(dm=dm_ref)
