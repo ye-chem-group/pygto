@@ -185,6 +185,55 @@ def get_basis_str_nwchem(basis, atm=None, header=True, sort=True):
     return s
 
 
+def get_named_basis(name, atm, version=None):
+    try:
+        import basis_set_exchange as bse
+    except ModuleNotFoundError as err:
+        if err.name != 'basis_set_exchange':
+            raise
+        return _download_named_basis(name, atm, version)
+
+    basis_str = bse.get_basis(
+        name,
+        elements=[atm],
+        version=version,
+        fmt='nwchem',
+        header=True,
+    )
+    return load_basis_nwchem(basis_str, atm)
+
+
+def _download_named_basis(name, atm, version=None, timeout=20):
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import quote, urlencode
+    from urllib.request import Request, urlopen
+
+    params = {'elements': atm}
+    if version is not None:
+        params['version'] = version
+
+    url = (
+        'https://www.basissetexchange.org/api/basis/'
+        f'{quote(name, safe="")}/format/nwchem/?{urlencode(params)}'
+    )
+    request = Request(url, headers={'User-Agent': 'pygto'})
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            basis_str = response.read().decode('utf-8')
+    except HTTPError as err:
+        raise RuntimeError(
+            'BSE returned HTTP error %d for basis %s and atom %s.'
+            % (err.code, name, atm)
+        ) from err
+    except URLError as err:
+        raise RuntimeError(
+            'Could not connect to the Basis Set Exchange.'
+        ) from err
+
+    return load_basis_nwchem(basis_str, atm)
+
+
 if __name__ == '__main__':
     atm = 'C'
     fbas = '/Users/hzye/local/opt/pyscf/pyscf/gto/basis/cc-pvtz.dat'
