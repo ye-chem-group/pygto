@@ -170,6 +170,11 @@ CONFIGURATION = [
 ]
 
 
+def get_atom_symbol(Z):
+    if Z <= 0 or Z > len(ATOM_SYMBOLS):
+        raise ValueError('Z must be in [0, %d]' % (len(ATOM_SYMBOLS)))
+    return ATOM_SYMBOLS[Z]
+
 def get_Z(atm):
     if atm in ATOM_SYMBOLS:
         return ATOM_SYMBOLS.index(atm)
