@@ -4,6 +4,7 @@ import numpy as np
 from pygto.lib import soft_clip, soft_log_clip, inverse_soft_clip, inverse_soft_log_clip, softplus
 from pygto.lib import filter_by_range, to_int_list
 from pygto.lib import StreamObject
+from pygto.lib import dump_basis_nwchem, get_basis_str_nwchem
 
 
 REPEAT_THR = 1.01
@@ -136,8 +137,17 @@ class Channel(StreamObject):
         '''
         return self.get_pyscf_basis()
 
-    def get_pyscf_basis(self, emin=None, emax=None):
+    def get_pyscf_basis(self, emin=None, emax=None, sort=True):
+        ''' Return PySCF-format basis.
+
+            Args:
+                emin/emax (float):
+                    Exponents outside [emin, emax] will be discarded. Default is None.
+                sort (bool):
+                    Whether to sort the exponents in *descending* order. Default is True.
+        '''
         exponents = filter_by_range(self.exponents, emin, emax)
+        if sort: exponents = np.sort(exponents)[::-1]
         return [(int(self.l), (e, 1.)) for e in exponents]
 
     def copy(self):
@@ -260,26 +270,17 @@ class Channel(StreamObject):
 
         return penalty
 
-    def get_basis_str_nwchem(self, atm=None, header=True):
-        ''' Return NWChem format basis string for this channel
-        '''
-        if atm is None: atm = 'X'
-        lname = 'SPDFGHIKL'[self.l]
-        s = []
-        if header:
-            struct = self.structure
-            s.append( f'#BASIS SET: ({struct}) -> [{struct}]' )
-        for e in np.sort(self.exponents)[::-1]:
-            s.append( f'{atm}  {lname}' )
-            s.append( f'{e:15.7f}  {1.: .6e}' )
-        return '\n'.join(s)
+    def get_basis_str_nwchem(self, atm=None, header=True, sort=True):
+        return get_basis_str_nwchem(
+            self.get_pyscf_basis(sort=sort), atm, header, sort
+        )
 
-    def dump_basis_nwchem(self, stdout=None, atm=None, header=True):
+    def dump_basis_nwchem(self, stdout=None, atm=None, header=True, sort=True):
         ''' Print NWChem format basis string to given destination
         '''
-        basis_str = self.get_basis_str_nwchem(atm=atm, header=header)
-        if stdout is None: stdout = self.stdout
-        stdout.write(basis_str + '\n')
+        dump_basis_nwchem(
+            self.get_pyscf_basis(sort=sort), stdout, atm, header, sort
+        )
 
     get_basis_str = get_basis_str_nwchem
     dump_basis = dump_basis_nwchem
@@ -417,7 +418,7 @@ class ETB(Channel):
         if self._nexponent == 0:
             return np.asarray([], dtype=float)
         exponents = ETB_to_exponents(self._nexponent, self.amin, self.beta)
-        return np.sort(exponents)[::-1]
+        return np.sort(exponents)
 
     @exponents.setter
     def exponents(self, value):
@@ -499,7 +500,9 @@ class Full(Channel):
     def exponents(self):
         ''' Return a list of exponents
         '''
-        return soft_log_clip(self._parameters, self.amin_min, self.amax_max, self.aminmax_k)
+        # @@HY
+        es = soft_log_clip(self._parameters, self.amin_min, self.amax_max, self.aminmax_k)
+        return np.sort(es)
 
     @exponents.setter
     def exponents(self, value):
@@ -517,7 +520,6 @@ if __name__ == '__main__':
     print(channel.nao)
     print(channel.nbas)
     print(channel.nparam)
-    # print(channel.get_basis_str())
     channel.dump_basis(atm='C')
 
     l = 2
@@ -527,5 +529,4 @@ if __name__ == '__main__':
     print(channel.nao)
     print(channel.nbas)
     print(channel.nparam)
-    # print(channel.get_basis_str())
     channel.dump_basis(atm='C')

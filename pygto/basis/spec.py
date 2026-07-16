@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 from pygto.basis.channel import ETB, Full
 from pygto.lib import StreamObject, to_int_list, chkfile_helper
+from pygto.lib import load_basis_nwchem, dump_basis_nwchem, get_basis_str_nwchem
 
 
 class BasisSpec(StreamObject):
@@ -28,6 +29,14 @@ class BasisSpec(StreamObject):
         # attribute with default
         self.atm = None
         self._active_channel = None
+
+    @classmethod
+    def init_from_nwchem_basis(cls, basis_str_or_file, atm, **kwargs):
+        ''' Init from NWChem format basis, which can be provided in terms of either
+            the basis data string or a path to a basis data file.
+        '''
+        basis = load_basis_nwchem(basis_str_or_file, atm)
+        return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
 
     @classmethod
     def init_from_pyscf_basis(cls, basis, channel_type='full', repeat_thr=1.01, keep_l=None,
@@ -425,7 +434,7 @@ class BasisSpec(StreamObject):
         new.filter_channel_by_exponent_range_(channel_idx, emin, emax)
         return new
 
-    def get_pyscf_basis(self, keep_l=None, emin=None, emax=None):
+    def get_pyscf_basis(self, keep_l=None, emin=None, emax=None, sort=True):
         ''' Return basis set in PySCF format
 
             Args:
@@ -436,6 +445,9 @@ class BasisSpec(StreamObject):
                 emin/emax (float):
                     Only exponents within [emin, emax] will be kept.
                     Default is None, which does not filter.
+
+                sort (bool):
+                    Whether to sort the exponents in descending order. Default is True.
 
             Note:
                 keep_l is independent of active_l, i.e.,
@@ -453,39 +465,29 @@ class BasisSpec(StreamObject):
         basis = []
         for c in self.channels:
             if c.l in keep_l:
-                basis += c.get_pyscf_basis(emin, emax)
+                basis += c.get_pyscf_basis(emin, emax, sort=sort)
 
         return basis
 
-    def get_basis_str_nwchem(self, atm=None, header=True):
-        ''' Return NWChem format basis string
-        '''
-        if atm is None: atm = self.atm
+    def get_basis_str_nwchem(self, atm=None, header=True, sort=True):
+        return get_basis_str_nwchem(
+            self.get_pyscf_basis(sort=sort), atm, header, sort
+        )
 
-        s = []
-        if header:
-            struct = self.structure.replace(' ', ',')
-            s.append( f'#BASIS SET: ({struct}) -> [{struct}]' )
-
-        for c in self.channels:
-            if c.nbas > 0:  # avoid adding empty lines for empty channels
-                s.append( c.get_basis_str(atm=atm, header=False) )
-
-        return '\n'.join(s)
-
-    def dump_basis_nwchem(self, stdout=None, atm=None, header=True):
+    def dump_basis_nwchem(self, stdout=None, atm=None, header=True, sort=True):
         ''' Print NWChem format basis string to given destination
         '''
-        basis_str = self.get_basis_str_nwchem(atm=atm, header=header)
-        if stdout is None: stdout = self.stdout
-        stdout.write(basis_str + '\n')
+        if atm is None: atm = self.atm
+        dump_basis_nwchem(
+            self.get_pyscf_basis(sort=sort), stdout, atm, header, sort
+        )
 
-    def dump_channel_basis(self, channel_idx, stdout=None, atm=None, header=True):
+    def dump_channel_basis(self, channel_idx, stdout=None, atm=None, header=True, sort=True):
         self._check_channel_idx(channel_idx)
         if stdout is None: stdout = self.stdout
         if atm is None: atm = self.atm
         return self.channels[channel_idx].dump_basis(
-            stdout=stdout, atm=atm, header=header
+            stdout=stdout, atm=atm, header=header, sort=sort,
         )
 
     get_basis_str = get_basis_str_nwchem

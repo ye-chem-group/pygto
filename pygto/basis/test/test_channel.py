@@ -5,6 +5,25 @@ from pygto.basis import ETB, Full
 
 
 class ChannelTest(unittest.TestCase):
+    def test_exponents_order(self):
+        # ETB.exponents should be ascending
+        channel = ETB(0, [2.7, 0.3, 0.9])
+        np.testing.assert_allclose(channel.exponents, np.sort(channel.exponents))
+
+        # Full.exponents should be ascending
+        channel = Full(0, [2.7, 0.3, 0.9])
+        np.testing.assert_allclose(channel.exponents, np.sort(channel.exponents))
+
+        # PySCF exponents should be descending by default...
+        exponents = np.asarray([b[1][0] for b in channel.get_pyscf_basis()])
+        np.testing.assert_allclose(exponents, np.sort(channel.exponents)[::-1])
+
+        # ...but can be preserving Channel.exponents order (i.e., ascending) by `sort=False`
+        exponents = np.asarray([
+            b[1][0] for b in channel.get_pyscf_basis(sort=False)
+        ])
+        np.testing.assert_allclose(exponents, channel.exponents)
+
     def test_ETB(self):
         def test1(es):
             n = len(es)
