@@ -732,6 +732,40 @@ class ETB(Channel):
     beta_max = BETA_MAX
     beta_k = BETA_K
 
+    @classmethod
+    def init_from_etb_params(cls, l, nprim, amin, beta):
+        ''' Initialize an ETB channel from even-tempered parameters.
+
+            Args:
+                l (int):
+                    Angular momentum.
+                nprim (int):
+                    Number of primitive exponents.
+                amin (float):
+                    Smallest exponent.
+                beta (float):
+                    Geometric ratio between adjacent exponents.
+
+            Return:
+                channel (ETB):
+                    Even-tempered channel generated from the supplied parameters.
+
+            Note:
+                `amin` and `beta` are subject to the ETB parameter bounds. `beta` is
+                ignored when `nprim` is 1.
+        '''
+        from numbers import Integral
+        if not isinstance(l, Integral):
+            raise TypeError('l must be an integer.')
+        elif l < 0:
+            raise ValueError('l must be nonnegative.')
+        if not isinstance(nprim, Integral):
+            raise TypeError('nprim must be an integer.')
+        elif nprim < 1:
+            raise ValueError('nprim must be positive.')
+        exponents = ETB_to_exponents(nprim, amin, beta)
+        return cls(l, exponents)
+
     def exponents_to_parameters(self, exponents):
         ''' Convert primitive exponents to unconstrained ETB parameters.
 

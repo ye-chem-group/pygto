@@ -42,6 +42,48 @@ class BasisSpec(StreamObject):
         self._active_channel = None
 
     @classmethod
+    def init_from_basis(cls, basis, atm, **kwargs):
+        ''' Initialize a BasisSpec object from common basis representations.
+
+            Args:
+                basis (str, list, or tuple):
+                    Basis input. A list or tuple is interpreted as PySCF-format basis
+                    data. A string may be the path to an NWChem basis file, inline
+                    NWChem basis data containing a `#BASIS SET` header, or a basis-set
+                    name recognized by Basis Set Exchange.
+                atm (str):
+                    Atomic symbol of the basis to load.
+                kwargs (dict):
+                    Additional arguments passed to `init_from_pyscf_basis`.
+
+            Return:
+                spec (BasisSpec):
+                    BasisSpec object initialized from `basis`.
+
+            Note:
+                String inputs are interpreted in the following order: an existing
+                file, inline NWChem data, and finally a named basis set.
+        '''
+        if isinstance(basis, (list, tuple)):    # PySCF-format basis data
+            return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
+        elif isinstance(basis, str):
+            import os
+            from pygto.lib import has_pyscf
+            if os.path.isfile(basis):   # NWChem basis data file
+                basis = load_basis_nwchem(basis, atm)
+            elif '#B' in basis:         # NWChem basis data string
+                basis = load_basis_nwchem(basis, atm)
+            elif has_pyscf():           # Named basis; using PySCF loader
+                from pygto.lib import pyscf_helper
+                basis = pyscf_helper.load_basis(basis, atm)
+            else:                       # Named basis; using BasisSetExchange loader
+                basis = get_named_basis(basis, atm)
+            return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
+        else:
+            raise TypeError('basis must be a str (NWChem basis data file/string or '
+                            'named basis) or a list/tuple (PySCF-format basis data).')
+
+    @classmethod
     def init_from_named_basis(cls, name, atm, **kwargs):
         ''' Initialize a BasisSpec object from a named basis set.
 
@@ -129,6 +171,30 @@ class BasisSpec(StreamObject):
             if c.nparam > 0:
                 channels.append( c )
 
+        return cls(channels).set(atm=atm)
+
+    @classmethod
+    def init_from_etb_params(cls, etb_params, atm=None):
+        ''' Initialize a BasisSpec object from even-tempered basis parameters.
+
+            Args:
+                etb_params (list or tuple of tuple):
+                    ETB channel parameters. Each entry has the form
+                    `(l, nprim, amin, beta)`, where `l` is the angular momentum,
+                    `nprim` is the number of primitives, `amin` is the smallest
+                    exponent, and `beta` is the geometric ratio.
+                atm (str):
+                    Atomic symbol associated with the basis. Default is None.
+
+            Return:
+                spec (BasisSpec):
+                    BasisSpec containing one ETB channel for each parameter entry.
+
+            Note:
+                `amin` and `beta` are subject to the ETB parameter bounds. `beta` is
+                ignored for channels containing one primitive.
+        '''
+        channels = [ETB.init_from_etb_params(*etb_param) for etb_param in etb_params]
         return cls(channels).set(atm=atm)
 
     def convert_to(self, channel_type):
@@ -820,7 +886,7 @@ class BasisSpec(StreamObject):
 
         return basis
 
-    def get_basis_str_nwchem(self, atm=None, header=True, sort=True):
+    def get_basis_str_nwchem(self, atm=None, header=True, sort=True, keep_l=None):
         ''' Return the basis as an NWChem-format string.
 
             Args:
@@ -831,16 +897,19 @@ class BasisSpec(StreamObject):
                 sort (bool):
                     Whether to sort angular momenta and exponents in canonical order.
                     Default is True.
+                keep_l (int or list of int):
+                    Angular momenta to keep. Default is None, which keeps all channels.
 
             Return:
                 basis_str (str):
                     Basis data in NWChem format.
         '''
+        if keep_l is None: keep_l = self.angular_momenta
         return get_basis_str_nwchem(
-            self.get_pyscf_basis(sort=sort), atm, header, sort
+            self.get_pyscf_basis(sort=sort), atm, header, sort, keep_l
         )
 
-    def dump_basis_nwchem(self, stdout=None, atm=None, header=True, sort=True):
+    def dump_basis_nwchem(self, stdout=None, atm=None, header=True, sort=True, keep_l=None):
         ''' Write the basis in NWChem format.
 
             Args:
@@ -855,10 +924,13 @@ class BasisSpec(StreamObject):
                 sort (bool):
                     Whether to sort angular momenta and exponents in canonical order.
                     Default is True.
+                keep_l (int or list of int):
+                    Angular momenta to keep. Default is None, which keeps all channels.
         '''
         if atm is None: atm = self.atm
+        if keep_l is None: keep_l = self.angular_momenta
         dump_basis_nwchem(
-            self.get_pyscf_basis(sort=sort), stdout, atm, header, sort
+            self.get_pyscf_basis(sort=sort), stdout, atm, header, sort, keep_l
         )
 
     def dump_channel_basis(self, channel_idx, stdout=None, atm=None, header=True, sort=True):
