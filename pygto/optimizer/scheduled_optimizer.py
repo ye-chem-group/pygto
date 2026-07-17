@@ -53,6 +53,30 @@ PRESET_STAGES = {
 }
 
 class ScheduledOptimizer(StreamObject):
+    ''' Run a sequence of optimizers and basis-setting stages.
+
+        Args:
+            spec (BasisSpec):
+                Basis specification to optimize.
+            cost_func (callable):
+                Default function that accepts a BasisSpec and returns its scalar cost.
+            stages (str, dict, or list of dict):
+                Named preset or explicit stage configuration. Default is "default".
+            grad_func (callable):
+                Default objective-gradient function for optimizers that support
+                gradients. Default is None.
+            verbose (int):
+                Logging verbosity. Default is None.
+
+        Attributes:
+            verbose_optimizer (int or None):
+                Logging verbosity for individual stage optimizers. Default is None,
+                which derives it from this object's verbosity.
+            chkfile (str or None):
+                Checkpoint path for saving the basis after each stage. Default is
+                None, which disables checkpoint output.
+    '''
+
     def __init__(self, spec, cost_func, stages='default', grad_func=None, verbose=None):
         self.spec = spec
         self.cost_func = cost_func
@@ -75,17 +99,43 @@ class ScheduledOptimizer(StreamObject):
         self.stop_reason = None
 
     def format_cost(self):
+        ''' Return the current cost formatted for logging.
+
+            Return:
+                cost_str (str):
+                    Formatted cost string.
+        '''
         return f'cost= {self.cost:.10f}'
 
     @property
     def stages(self):
+        ''' Return the formalized optimization stages.
+
+            Return:
+                stages (list or tuple of dict):
+                    Stage configurations.
+        '''
         return self._stages
 
     @stages.setter
     def stages(self, stages):
+        ''' Validate and set optimization stages.
+
+            Args:
+                stages (str, dict, or list of dict):
+                    Named preset or explicit stage configuration.
+        '''
         self.set_stages(stages)
 
     def set_stages(self, stages):
+        ''' Validate, copy, and store optimization stages.
+
+            Args:
+                stages (str, dict, or list of dict):
+                    Named preset or explicit stage configuration. Each stage requires
+                    an `optimizer` and may define `optimizer_settings`, `spec_settings`,
+                    `cost_func`, and `grad_func`.
+        '''
         if isinstance(stages, str):
             stages = self.get_preset_stages(stages)
         elif isinstance(stages, dict):
@@ -119,6 +169,17 @@ class ScheduledOptimizer(StreamObject):
 
     @staticmethod
     def get_preset_stages(name='default'):
+        ''' Return a copied named stage schedule.
+
+            Args:
+                name (str):
+                    Preset name. Accepted values are "loose", "default", and
+                    "refine". Default is "default".
+
+            Return:
+                stages (list of dict):
+                    Independent copy of the preset stage configurations.
+        '''
         if isinstance(name, str):
             if name.lower() not in PRESET_STAGES:
                 raise ValueError(f'Unknown named stages "{name}"')
@@ -128,8 +189,19 @@ class ScheduledOptimizer(StreamObject):
 
         return stages
 
-
     def kernel(self, **kwargs):
+        ''' Run all configured optimization stages.
+
+            Args:
+                kwargs (dict):
+                    Attribute overrides applied before initialization.
+
+            Return:
+                cost (float):
+                    Final raw cost.
+                spec (BasisSpec):
+                    Basis specification produced by the final stage.
+        '''
         self.set(**kwargs)
 
         self.initialize()
@@ -173,7 +245,17 @@ class ScheduledOptimizer(StreamObject):
 
     @staticmethod
     def apply_spec_settings_(spec, stage):
-        ''' Apply settings for BasisSpec in plance to `spec`.
+        ''' Apply one stage's BasisSpec settings in place.
+
+            Args:
+                spec (BasisSpec):
+                    Basis specification to modify.
+                stage (dict):
+                    Stage configuration containing optional `spec_settings`.
+
+            Return:
+                spec (BasisSpec):
+                    Modified basis specification.
         '''
         spec_settings = stage.get('spec_settings', None)
         if spec_settings is None:
@@ -195,7 +277,17 @@ class ScheduledOptimizer(StreamObject):
 
     @staticmethod
     def apply_optimizer_settings_(optimizer, stage):
-        ''' Apply settings for Optimizer in plance to `opt`.
+        ''' Apply one stage's optimizer settings in place.
+
+            Args:
+                optimizer (Optimizer):
+                    Optimizer to modify.
+                stage (dict):
+                    Stage configuration containing optional `optimizer_settings`.
+
+            Return:
+                optimizer (Optimizer):
+                    Modified optimizer.
         '''
         optimizer_settings = stage.get('optimizer_settings', None)
         if optimizer_settings is None:
@@ -206,6 +298,7 @@ class ScheduledOptimizer(StreamObject):
         return optimizer
 
     def dump_flags(self):
+        ''' Log scheduled-optimizer settings. '''
         self.log_info('\n')
         self.log_info('******** %s ********' % (self.__class__.__name__))
         self.log_info('stages= %s' % (str(self.stages)))
@@ -214,6 +307,14 @@ class ScheduledOptimizer(StreamObject):
         self.log_info('')
 
     def print_stage_info(self, istage, stage):
+        ''' Log settings for an entering stage.
+
+            Args:
+                istage (int):
+                    Zero-based stage index.
+                stage (dict):
+                    Formalized stage configuration.
+        '''
         self.log_note('Enter stage %d  optimizer= %s' % (
             istage+1, stage['optimizer'].__name__
         ))
@@ -223,6 +324,14 @@ class ScheduledOptimizer(StreamObject):
         self.log_info('spec_settings= %s' % (str(stage.get('spec_settings', None))), indent=1)
 
     def print_step(self, istage, opt):
+        ''' Log the result of a completed stage.
+
+            Args:
+                istage (int):
+                    Zero-based stage index.
+                opt (Optimizer):
+                    Optimizer used for the completed stage.
+        '''
         if opt.converged:
             self.log_note('Leaving stage %d  %s  cycle= %d  feval= %d  converged= %s' % (
                 istage+1, self.format_cost(), opt.cycle, opt.feval, str(opt.converged)
@@ -233,6 +342,7 @@ class ScheduledOptimizer(StreamObject):
                 str(opt.converged), opt.stop_reason))
 
     def initialize(self):
+        ''' Reset scheduled-optimization state and evaluate the initial cost. '''
         self.optimizers = []
         self.history = []
         self.feval = 0
@@ -241,6 +351,14 @@ class ScheduledOptimizer(StreamObject):
         self.cost = self.cost_func(self.spec)
 
     def save_history(self, opt, stage):
+        ''' Save the result of one optimization stage.
+
+            Args:
+                opt (Optimizer):
+                    Optimizer used for the completed stage.
+                stage (dict):
+                    Stage configuration.
+        '''
         self.optimizers.append(opt)
         self.feval += opt.feval
 
@@ -264,6 +382,16 @@ class ScheduledOptimizer(StreamObject):
     dump_chkfile = Optimizer.dump_chkfile
 
 def _formalize_optimizer(opt):
+    ''' Convert an optimizer name or class to an Optimizer subclass.
+
+        Args:
+            opt (str or type):
+                Named optimizer or Optimizer subclass.
+
+        Return:
+            optimizer (type):
+                Formalized Optimizer subclass.
+    '''
     if isinstance(opt, str):
         opt = opt.lower()
         if opt in ['nm', 'nelder', 'neldermead']:

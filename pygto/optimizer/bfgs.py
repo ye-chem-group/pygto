@@ -8,6 +8,39 @@ from pygto.optimizer.optimizer import Optimizer
 
 
 class BFGS(Optimizer):
+    ''' Limited-memory BFGS optimizer with Armijo backtracking.
+
+        Args:
+            spec (BasisSpec):
+                Basis specification to optimize.
+            cost_func (callable):
+                Function that accepts a BasisSpec and returns its scalar cost.
+            grad_func (callable):
+                Function that accepts a BasisSpec and returns the gradient of the
+                total objective. Default is None, which uses numerical gradients.
+            verbose (int):
+                Logging verbosity. Default is None.
+
+        Attributes:
+            memory (int):
+                Maximum number of stored correction pairs. Default is 20.
+            max_step (float or None):
+                Maximum absolute component of the search direction. Default is 0.5;
+                None disables direction scaling.
+            armijo_c1 (float):
+                Armijo sufficient-decrease coefficient. Default is `1e-4`.
+            step_min (float):
+                Minimum line-search step. Default is `1e-8`.
+            max_backtracks (int):
+                Maximum number of backtracking evaluations. Default is 60.
+            curvature_tol (float):
+                Relative curvature threshold for accepting correction pairs. Default
+                is `1e-10`.
+            grad_abs_step (float):
+                Absolute step for numerical gradients. Default is `1e-4`.
+            grad_rel_step (float):
+                Relative step for numerical gradients. Default is `1e-4`.
+    '''
 
     support_grad = True
 
@@ -29,6 +62,7 @@ class BFGS(Optimizer):
         self.rho_list = None
 
     def dump_flags(self):
+        ''' Log general and BFGS-specific optimizer settings. '''
         Optimizer.dump_flags(self)
         self.log_info('grad_func= %s' % ('None' if self.grad_func is None else 'user'))
         self.log_info('memory= %d' % self.memory)
@@ -42,6 +76,7 @@ class BFGS(Optimizer):
         self.log_info('')
 
     def initialize(self):
+        ''' Initialize objective, gradient, and BFGS correction history. '''
         super().initialize()
         self.gradient = self.get_gradient(self.parameters)
         self.s_list = []
@@ -50,6 +85,17 @@ class BFGS(Optimizer):
         self.status = 'initialized'
 
     def get_gradient(self, parameters):
+        ''' Evaluate the objective gradient.
+
+            Args:
+                parameters (array_like):
+                    Optimization parameters.
+
+            Return:
+                gradient (ndarray):
+                    Analytic gradient from `grad_func`, or a numerical gradient when
+                    `grad_func` is None.
+        '''
         if self.grad_func is None:
             return numer_grad(
                 self.get_objective,
@@ -62,6 +108,20 @@ class BFGS(Optimizer):
         return np.asarray(self.grad_func(spec), dtype=float)
 
     def safe_eval_gradient(self, parameters):
+        ''' Safely evaluate the objective and gradient.
+
+            Args:
+                parameters (array_like):
+                    Optimization parameters.
+
+            Return:
+                objective (float or None):
+                    Objective value, or None when evaluation fails.
+                gradient (ndarray or None):
+                    Gradient, or None when evaluation fails.
+                success (bool):
+                    Whether both values are finite and were evaluated successfully.
+        '''
         objective = self.safe_eval(parameters)
         if not np.isfinite(objective):
             return None, None, False
@@ -77,6 +137,12 @@ class BFGS(Optimizer):
             return None, None, False
 
     def next_step(self):
+        ''' Perform one BFGS step with Armijo backtracking.
+
+            Note:
+                Failed line searches retain the current parameters and clear the
+                correction history.
+        '''
         self.status = 'started'
         self.message = None
 

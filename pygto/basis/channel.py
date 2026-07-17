@@ -17,6 +17,24 @@ BETA_K = 10.
 
 
 class Channel(StreamObject):
+    ''' Base class for an optimizable uncontracted angular-momentum channel.
+
+        Args:
+            l (int):
+                Angular momentum.
+            exponents (array_like):
+                Primitive exponents.
+
+        Attributes:
+            amin_min (float):
+                Lower exponent bound used by parameter transformations. Default is
+                `AMIN_MIN`.
+            amax_max (float):
+                Upper exponent bound used by parameter transformations. Default is
+                `AMAX_MAX`.
+            aminmax_k (float):
+                Soft-clipping strength for exponent bounds. Default is `AMINMAX_K`.
+    '''
 
     amin_min = AMIN_MIN
     amax_max = AMAX_MAX
@@ -32,11 +50,38 @@ class Channel(StreamObject):
 
     @classmethod
     def init_from_pyscf_basis(cls, l, basis, repeat_thr=REPEAT_THR, emin=None, emax=None):
+        ''' Initialize a channel from a PySCF-format basis.
+
+            Args:
+                l (int):
+                    Angular momentum to extract.
+                basis (list):
+                    Basis data in PySCF format.
+                repeat_thr (float):
+                    Exponents with an adjacent ratio no greater than this threshold
+                    are treated as repeated. Default is `REPEAT_THR`.
+                emin/emax (float):
+                    Exponents outside [emin, emax] are discarded. Default is None,
+                    which does not impose the corresponding bound.
+
+            Return:
+                channel (Channel):
+                    Channel initialized from the selected exponents.
+        '''
         exponents = exponents_from_pyscf_basis_by_l(basis, l, repeat_thr, emin, emax)
         return cls(l, exponents)
 
     def convert_to(self, channel_type):
-        ''' Convert a copy of current Channel into specified channel type
+        ''' Convert a copy of the channel to a specified channel type.
+
+            Args:
+                channel_type (str):
+                    Target channel type. Accepted values are "etb" and "full"
+                    (case insensitive).
+
+            Return:
+                channel (Channel):
+                    Converted copy of the channel.
         '''
         ct = channel_type
         if not isinstance(ct, str):
@@ -56,20 +101,37 @@ class Channel(StreamObject):
         return new
 
     def __repr__(self):
+        ''' Return a concise representation of the channel. '''
         return f'{self.__class__.__name__}({self.structure})'
 
     # parameters
     @property
     def nparam(self):
+        ''' Return the number of optimization parameters.
+
+            Return:
+                nparam (int):
+                    Number of channel parameters.
+        '''
         return len(self.parameters)
 
     @property
     def parameters(self):
+        ''' Return optimization parameters as a copied array.
+
+            Return:
+                parameters (ndarray):
+                    Channel optimization parameters.
+        '''
         return np.asarray(self._parameters, dtype=float).copy()
 
     @parameters.setter
     def parameters(self, value):
-        ''' Update parameters in place
+        ''' Update optimization parameters in place.
+
+            Args:
+                value (array_like):
+                    New parameters. The size must equal `nparam`.
         '''
         value = np.asarray(value, dtype=float)
         if value.size != self.nparam:
@@ -80,13 +142,24 @@ class Channel(StreamObject):
 
     @property
     def convergence_parameters(self):
-        ''' Parameters for the optimizer to calculate ∆x to check convergence,
-            chosen to be log(exponents)
+        ''' Return parameters used by optimizers to check convergence.
+
+            Return:
+                parameters (ndarray):
+                    Natural logarithms of the channel exponents.
         '''
         return np.log(self.exponents)
 
     def with_parameters(self, value):
-        ''' Return a new Channel with updated parameters
+        ''' Return a copy with updated optimization parameters.
+
+            Args:
+                value (array_like):
+                    New channel parameters.
+
+            Return:
+                channel (Channel):
+                    Copy containing the updated parameters.
         '''
         channel = self.copy()
         channel.parameters = value
@@ -95,13 +168,24 @@ class Channel(StreamObject):
     # properties
     @property
     def exponents(self):
-        ''' To be implemented for each subclass
+        ''' Return primitive exponents.
+
+            Return:
+                exponents (ndarray):
+                    Primitive exponents in ascending order.
+
+            Note:
+                Subclasses must implement this property.
         '''
         raise NotImplementedError
 
     @exponents.setter
     def exponents(self, value):
-        ''' Reset parameters by exponents
+        ''' Reset channel parameters from primitive exponents.
+
+            Args:
+                value (array_like):
+                    Strictly positive primitive exponents.
         '''
         value = np.asarray(value, dtype=float)
         if np.any(value <= 0.):
@@ -115,25 +199,53 @@ class Channel(StreamObject):
 
     @property
     def nao(self):
+        ''' Return the number of basis functions including m components.
+
+            Return:
+                nao (int):
+                    Number of spherical atomic orbitals.
+        '''
         dgen = self.l * 2 + 1
         return self.nbas * dgen
 
     @property
     def nbas(self):
+        ''' Return the number of radial basis functions.
+
+            Return:
+                nbas (int):
+                    Number of primitive basis functions excluding m components.
+        '''
         return self.nexponent
 
     @property
     def nexponent(self):
+        ''' Return the number of primitive exponents.
+
+            Return:
+                nexponent (int):
+                    Number of exponents in the channel.
+        '''
         return self._nexponent
 
     @property
     def structure(self):
+        ''' Return the channel structure.
+
+            Return:
+                structure (str):
+                    Basis count followed by the angular-momentum label.
+        '''
         lstr = 'spdfghikl'[self.l]
         return f'{self.nbas}{lstr}'
 
     @property
     def pyscf_basis(self):
-        ''' Return PySCF basis set for this channel
+        ''' Return the channel in PySCF format.
+
+            Return:
+                basis (list):
+                    Basis data in PySCF format.
         '''
         return self.get_pyscf_basis()
 
@@ -145,34 +257,64 @@ class Channel(StreamObject):
                     Exponents outside [emin, emax] will be discarded. Default is None.
                 sort (bool):
                     Whether to sort the exponents in *descending* order. Default is True.
+
+            Return:
+                basis (list):
+                    Uncontracted basis data in PySCF format.
         '''
         exponents = filter_by_range(self.exponents, emin, emax)
         if sort: exponents = np.sort(exponents)[::-1]
         return [(int(self.l), (e, 1.)) for e in exponents]
 
     def copy(self):
+        ''' Return an independent copy of the channel.
+
+            Return:
+                channel (Channel):
+                    Copy of the channel.
+        '''
         new = self.__class__(self.l, self.exponents)
         for k in self._keys:
             setattr(new, k, getattr(self, k))
         return new
 
     def replace_exponents(self, exponents):
-        ''' Return a copy with exponents replaced
+        ''' Return a copy with replaced exponents.
+
+            Args:
+                exponents (array_like):
+                    Replacement primitive exponents.
+
+            Return:
+                channel (Channel):
+                    Copy containing the replacement exponents.
         '''
         new = self.copy()
         new.exponents = exponents
         return new
 
     def replace_exponents_(self, exponents):
-        ''' Replace exponents in place
+        ''' Replace primitive exponents in place.
+
+            Args:
+                exponents (array_like):
+                    Replacement primitive exponents.
         '''
         self.exponents = exponents
 
     def merge(self, others, repeat_thr=REPEAT_THR):
         ''' Merge the current channel with other channels of same angular momentum.
 
-            `others` can be either a single other channel or a list of other channels.
-            A TypeError will be raised if any of the other channels have (i) different `l` or (ii) different channel type (e.g., ETB vs Full) compared to the current one.
+            Args:
+                others (Channel or list of Channel):
+                    Same-type channels with the same angular momentum.
+                repeat_thr (float):
+                    Exponents with an adjacent ratio no greater than this threshold
+                    are treated as repeated. Default is `REPEAT_THR`.
+
+            Return:
+                channel (Channel):
+                    Copy containing the merged exponents.
         '''
         if isinstance(others, Channel):
             others = [others]
@@ -193,18 +335,59 @@ class Channel(StreamObject):
         return self.replace_exponents(exponents)
 
     def remove_one_exponent_candidates(self, upscale=1.2, downscale=0.8):
+        ''' Return candidate channels with one exponent removed.
+
+            Args:
+                upscale (float):
+                    Scaling factor applied after removing the tightest exponent.
+                    Default is 1.2.
+                downscale (float):
+                    Scaling factor applied after removing the most diffuse exponent.
+                    Default is 0.8.
+
+            Return:
+                channels (list of Channel):
+                    Candidate channels.
+        '''
         channels = []
         for exponents in remove_one_exponent_candidates(self.exponents, upscale, downscale):
             channels.append( self.replace_exponents(exponents) )
         return channels
 
     def add_one_exponent_candidates(self, upscale=1.2, downscale=0.8, emin=0.01):
+        ''' Return candidate channels with one exponent added.
+
+            Args:
+                upscale (float):
+                    Scaling factor applied to existing exponents when adding a
+                    diffuse exponent. Default is 1.2.
+                downscale (float):
+                    Scaling factor applied to existing exponents when adding a tight
+                    exponent. Default is 0.8.
+                emin (float):
+                    Lower bound for the most diffuse candidate. Default is 0.01.
+
+            Return:
+                channels (list of Channel):
+                    Candidate channels.
+        '''
         channels = []
         for exponents in add_one_exponent_candidates(self.exponents, upscale, downscale, emin):
             channels.append( self.replace_exponents(exponents) )
         return channels
 
     def remove_one_exponent_candidates_rigid(self, emin=None, emax=None):
+        ''' Return candidates formed by removing each selected exponent once.
+
+            Args:
+                emin/emax (float):
+                    The channel is first restricted to exponents within [emin, emax].
+                    Default is None, which does not impose the corresponding bound.
+
+            Return:
+                channels (list of Channel):
+                    Candidate channels with one exponent removed without rescaling.
+        '''
         exponents = np.sort(filter_by_range(self.exponents, emin, emax))
         return [
             self.replace_exponents(subexponents)
@@ -212,19 +395,37 @@ class Channel(StreamObject):
         ]
 
     def filter_by_exponent_range_(self, emin=None, emax=None):
-        ''' Filter exponents in place by [emin, emax]
+        ''' Filter primitive exponents by range in place.
+
+            Args:
+                emin/emax (float):
+                    Exponents outside [emin, emax] are discarded. Default is None,
+                    which does not impose the corresponding bound.
         '''
         self.exponents = filter_by_range(self.exponents, emin, emax)
 
     def filter_by_exponent_range(self, emin=None, emax=None):
-        ''' Return a new channel where exponents are filtered by [emin, emax]
+        ''' Return a copy filtered by exponent range.
+
+            Args:
+                emin/emax (float):
+                    Exponents outside [emin, emax] are discarded. Default is None,
+                    which does not impose the corresponding bound.
+
+            Return:
+                channel (Channel):
+                    Filtered copy of the channel.
         '''
         new = self.copy()
         new.filter_by_exponent_range_(emin, emax)
         return new
 
     def filter_by_index_(self, exponent_idx):
-        ''' Filter exponents in place by index
+        ''' Filter primitive exponents by index in place.
+
+            Args:
+                exponent_idx (int or list of int):
+                    Exponent indices to retain.
         '''
         index = to_int_list(exponent_idx)
         if not set(index).issubset(set(range(self.nexponent))):
@@ -232,18 +433,33 @@ class Channel(StreamObject):
         self.exponents = self.exponents[index]
 
     def filter_by_index(self, exponent_idx):
-        ''' Return a new channel where exponents are filtered by index
+        ''' Return a copy filtered by exponent index.
+
+            Args:
+                exponent_idx (int or list of int):
+                    Exponent indices to retain.
+
+            Return:
+                channel (Channel):
+                    Filtered copy of the channel.
         '''
         new = self.copy()
         new.filter_by_index_(exponent_idx)
         return new
 
     def get_ratio_penalty(self, ratio_min=None, strength=None):
-        ''' Penalty on two exponents being too close.
+        ''' Return a smooth penalty for adjacent exponents that are too close.
 
-            Meth:
-                r(i) = e(i+1)/e(i)
-                penalty = strength * sum_i ( min(r(i) - rmin, 0) )^2
+            Args:
+                ratio_min (float):
+                    Minimum desired ratio between adjacent exponents. Default is None,
+                    which disables the penalty.
+                strength (float):
+                    Penalty strength. Default is None, which disables the penalty.
+
+            Return:
+                penalty (float):
+                    Smooth quadratic penalty based on adjacent exponent ratios.
         '''
         if ratio_min is None or strength is None:
             return 0.
@@ -271,12 +487,37 @@ class Channel(StreamObject):
         return penalty
 
     def get_basis_str_nwchem(self, atm=None, header=True, sort=True):
+        ''' Return the channel as an NWChem-format string.
+
+            Args:
+                atm (str):
+                    Atomic symbol printed in the basis. Default is None, which uses "X".
+                header (bool):
+                    Whether to include the basis header. Default is True.
+                sort (bool):
+                    Whether to sort exponents in descending order. Default is True.
+
+            Return:
+                basis_str (str):
+                    Channel data in NWChem format.
+        '''
         return get_basis_str_nwchem(
             self.get_pyscf_basis(sort=sort), atm, header, sort
         )
 
     def dump_basis_nwchem(self, stdout=None, atm=None, header=True, sort=True):
-        ''' Print NWChem format basis string to given destination
+        ''' Write the channel in NWChem format.
+
+            Args:
+                stdout (file-like object):
+                    Destination for the basis data. Default is None, which uses
+                    `sys.stdout`.
+                atm (str):
+                    Atomic symbol printed in the basis. Default is None, which uses "X".
+                header (bool):
+                    Whether to include the basis header. Default is True.
+                sort (bool):
+                    Whether to sort exponents in descending order. Default is True.
         '''
         dump_basis_nwchem(
             self.get_pyscf_basis(sort=sort), stdout, atm, header, sort
@@ -286,6 +527,14 @@ class Channel(StreamObject):
     dump_basis = dump_basis_nwchem
 
     def dump_chkfile(self, chkfile, prefix=None):
+        ''' Save channel data to a checkpoint file.
+
+            Args:
+                chkfile (str):
+                    Path to checkpoint file.
+                prefix (str):
+                    Key in the checkpoint file. Default is None, which uses "channel".
+        '''
         from pygto.lib import chkfile_helper
         if prefix is None: prefix = 'channel'
         chkfile_helper.dump(chkfile, f'{prefix}/type', self.__class__.__name__.lower())
@@ -294,6 +543,18 @@ class Channel(StreamObject):
 
     @classmethod
     def init_from_chkfile(cls, chkfile, prefix=None):
+        ''' Initialize a channel from a checkpoint file.
+
+            Args:
+                chkfile (str):
+                    Path to checkpoint file.
+                prefix (str):
+                    Key in the checkpoint file. Default is None, which uses "channel".
+
+            Return:
+                channel (Channel):
+                    Channel initialized from saved data.
+        '''
         from pygto.lib import chkfile_helper
         if prefix is None: prefix = 'channel'
         l = int(chkfile_helper.load(chkfile, f'{prefix}/l'))
@@ -302,7 +563,23 @@ class Channel(StreamObject):
 
 
 def exponents_from_pyscf_basis_by_l(basis, l, repeat_thr=REPEAT_THR, emin=None, emax=None):
-    ''' Extract exponents of a given angular momentum from a PySCF basis
+    ''' Extract exponents of one angular momentum from a PySCF-format basis.
+
+        Args:
+            basis (list):
+                Basis data in PySCF format.
+            l (int):
+                Angular momentum to extract.
+            repeat_thr (float):
+                Exponents with an adjacent ratio no greater than this threshold are
+                treated as repeated. Default is `REPEAT_THR`.
+            emin/emax (float):
+                Exponents outside [emin, emax] are discarded. Default is None,
+                which does not impose the corresponding bound.
+
+        Return:
+            exponents (ndarray):
+                Unique exponents in ascending order.
     '''
     exponents = []
     for b in basis:
@@ -322,8 +599,18 @@ def exponents_from_pyscf_basis_by_l(basis, l, repeat_thr=REPEAT_THR, emin=None, 
 
 
 def remove_repeated_exponents(exponents, repeat_thr=REPEAT_THR):
-    ''' Sort exponents in ascending order and remove repeated ones,
-        defined by ratio less than `repeat_thr`.
+    ''' Sort exponents and remove adjacent values that are too close.
+
+        Args:
+            exponents (array_like):
+                Primitive exponents.
+            repeat_thr (float):
+                Adjacent exponents are retained only when their ratio is greater
+                than this threshold. Default is `REPEAT_THR`.
+
+        Return:
+            exponents (ndarray):
+                Filtered exponents in ascending order.
     '''
     if len(exponents) == 0:
         return exponents
@@ -335,6 +622,24 @@ def remove_repeated_exponents(exponents, repeat_thr=REPEAT_THR):
 
 
 def add_one_exponent_candidates(es, upscale=1.2, downscale=0.8, emin=0.01):
+    ''' Generate exponent arrays containing one additional exponent.
+
+        Args:
+            es (array_like):
+                Primitive exponents.
+            upscale (float):
+                Scaling factor applied to existing exponents when adding a diffuse
+                exponent. Default is 1.2.
+            downscale (float):
+                Scaling factor applied to existing exponents when adding a tight
+                exponent. Default is 0.8.
+            emin (float):
+                Lower bound for the most diffuse candidate. Default is 0.01.
+
+        Return:
+            candidates (tuple of array_like):
+                Four candidates ordered from tighter to more diffuse extensions.
+    '''
     es = np.sort(es)
     ne = es.size
 
@@ -367,6 +672,23 @@ def add_one_exponent_candidates(es, upscale=1.2, downscale=0.8, emin=0.01):
 
 
 def remove_one_exponent_candidates(es, upscale=1.2, downscale=0.8):
+    ''' Generate exponent arrays containing one fewer exponent.
+
+        Args:
+            es (array_like):
+                Primitive exponents.
+            upscale (float):
+                Scaling factor applied after removing the tightest exponent.
+                Default is 1.2.
+            downscale (float):
+                Scaling factor applied after removing the most diffuse exponent.
+                Default is 0.8.
+
+        Return:
+            candidates (tuple or list of ndarray):
+                Candidate exponent arrays. Empty and one-exponent inputs produce
+                zero and one candidates, respectively.
+    '''
     es = np.sort(es)
 
     # handle one-exponent and empty channels
@@ -386,12 +708,42 @@ def remove_one_exponent_candidates(es, upscale=1.2, downscale=0.8):
 
 
 class ETB(Channel):
+    ''' An even-tempered optimizable channel.
+
+        Exponents are represented as `amin * beta**i` for consecutive integer `i`.
+
+        Args:
+            l (int):
+                Angular momentum.
+            exponents (array_like):
+                Primitive exponents.
+
+        Attributes:
+            beta_min (float):
+                Lower bound for the geometric ratio. Default is `BETA_MIN`.
+            beta_max (float):
+                Upper bound for the geometric ratio. Default is `BETA_MAX`.
+            beta_k (float):
+                Soft-clipping strength for the geometric-ratio bounds. Default is
+                `BETA_K`.
+    '''
 
     beta_min = BETA_MIN
     beta_max = BETA_MAX
     beta_k = BETA_K
 
     def exponents_to_parameters(self, exponents):
+        ''' Convert primitive exponents to unconstrained ETB parameters.
+
+            Args:
+                exponents (array_like):
+                    Primitive exponents.
+
+            Return:
+                parameters (ndarray):
+                    Unconstrained parameters representing `amin` and, when needed,
+                    `beta`.
+        '''
         n, amin, beta = exponents_to_ETB(exponents)
         p0 = inverse_soft_log_clip(amin, self.amin_min, self.amax_max, self.aminmax_k)
         if n > 1:
@@ -402,10 +754,22 @@ class ETB(Channel):
 
     @property
     def amin(self):
+        ''' Return the smallest even-tempered exponent.
+
+            Return:
+                amin (float):
+                    Minimum exponent after parameter transformation.
+        '''
         return soft_log_clip(self._parameters[0], self.amin_min, self.amax_max, self.aminmax_k)
 
     @property
     def beta(self):
+        ''' Return the even-tempered geometric ratio.
+
+            Return:
+                beta (float):
+                    Geometric ratio, or 1 for a one-exponent channel.
+        '''
         if self._nexponent > 1:
             return soft_clip(self._parameters[1], self.beta_min, self.beta_max, self.beta_k)
         else:
@@ -413,7 +777,11 @@ class ETB(Channel):
 
     @property
     def exponents(self):
-        ''' Return a list of exponents
+        ''' Return even-tempered exponents in ascending order.
+
+            Return:
+                exponents (ndarray):
+                    Primitive exponents.
         '''
         if self._nexponent == 0:
             return np.asarray([], dtype=float)
@@ -422,11 +790,29 @@ class ETB(Channel):
 
     @exponents.setter
     def exponents(self, value):
+        ''' Reset ETB parameters from primitive exponents.
+
+            Args:
+                value (array_like):
+                    Strictly positive primitive exponents.
+        '''
         Channel.exponents.fset(self, value)
 
 
 def exponents_to_ETB(exponents):
-    ''' Convert exponents to ETB parameters: n, amin, and beta
+    ''' Fit even-tempered parameters to primitive exponents.
+
+        Args:
+            exponents (array_like):
+                Nonempty primitive exponents.
+
+        Return:
+            n (int):
+                Number of exponents.
+            amin (float):
+                Smallest fitted exponent.
+            beta (float):
+                Fitted geometric ratio.
     '''
     exponents = np.asarray(exponents)
     n = len(exponents)
@@ -449,9 +835,17 @@ def exponents_to_ETB(exponents):
     return n, amin, beta
 
 def _fit_ETB_minmax(exponents):
-    ''' Choose ETB parameters such that
-            - amin = min(exponents)
-            - amax = amin * beta**(n-1) = max(exponents)
+    ''' Fit ETB parameters to the minimum and maximum exponents.
+
+        Args:
+            exponents (array_like):
+                At least two primitive exponents.
+
+        Return:
+            amin (float):
+                Minimum input exponent.
+            beta (float):
+                Ratio satisfying `amin * beta**(n-1) = max(exponents)`.
     '''
     n = len(exponents)
     amin = np.min(exponents)
@@ -460,7 +854,17 @@ def _fit_ETB_minmax(exponents):
     return amin, beta
 
 def _fit_ETB_lstsq(exponents):
-    ''' Choose ETB parameters to minimize 2-norm error against exponents.
+    ''' Fit ETB parameters by least squares in logarithmic space.
+
+        Args:
+            exponents (array_like):
+                At least two primitive exponents.
+
+        Return:
+            amin (float):
+                Fitted minimum exponent.
+            beta (float):
+                Fitted geometric ratio.
     '''
     exponents = np.sort(exponents)
     n = len(exponents)
@@ -481,7 +885,19 @@ def _fit_ETB_lstsq(exponents):
 
 
 def ETB_to_exponents(n, amin, beta):
-    ''' Generate exponents from ETB parameters. For `n = 1`, `beta` is ignored.
+    ''' Generate primitive exponents from even-tempered parameters.
+
+        Args:
+            n (int):
+                Number of exponents.
+            amin (float):
+                Smallest exponent.
+            beta (float):
+                Geometric ratio. It is ignored when `n` is 1.
+
+        Return:
+            exponents (ndarray):
+                Even-tempered exponents in ascending order.
     '''
     if n == 1:
         return np.asarray([amin])
@@ -490,15 +906,37 @@ def ETB_to_exponents(n, amin, beta):
 
 
 class Full(Channel):
+    ''' An optimizable channel with one parameter per primitive exponent.
+
+        Args:
+            l (int):
+                Angular momentum.
+            exponents (array_like):
+                Primitive exponents.
+    '''
 
     def exponents_to_parameters(self, exponents):
+        ''' Convert primitive exponents to unconstrained parameters.
+
+            Args:
+                exponents (array_like):
+                    Primitive exponents.
+
+            Return:
+                parameters (ndarray):
+                    Unconstrained exponent parameters.
+        '''
         exponents = np.sort(exponents)
         parameters = inverse_soft_log_clip(exponents, self.amin_min, self.amax_max, self.aminmax_k)
         return parameters
 
     @property
     def exponents(self):
-        ''' Return a list of exponents
+        ''' Return primitive exponents in ascending order.
+
+            Return:
+                exponents (ndarray):
+                    Primitive exponents.
         '''
         # @@HY
         es = soft_log_clip(self._parameters, self.amin_min, self.amax_max, self.aminmax_k)
@@ -506,6 +944,12 @@ class Full(Channel):
 
     @exponents.setter
     def exponents(self, value):
+        ''' Reset full-channel parameters from primitive exponents.
+
+            Args:
+                value (array_like):
+                    Strictly positive primitive exponents.
+        '''
         Channel.exponents.fset(self, value)
 
 

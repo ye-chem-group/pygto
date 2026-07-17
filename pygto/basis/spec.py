@@ -20,6 +20,13 @@ class BasisSpec(StreamObject):
         Args:
             channels (list of Channel):
                 Basis-set channels.
+
+        Attributes:
+            atm (str):
+                Atomic symbol associated with the basis. Default is None.
+            active_channel (list of int):
+                Indices of channels included in parameter operations. Default is None,
+                which activates all channels.
     '''
 
     _keys = {
@@ -27,13 +34,6 @@ class BasisSpec(StreamObject):
     }
 
     def __init__(self, channels):
-        ''' Initialize a BasisSpec object from basis-set channels.
-
-            Args:
-                channels (list of Channel):
-                    Basis-set channels.
-        '''
-
         # attribute from initialization
         self.channels = channels
 
@@ -43,6 +43,20 @@ class BasisSpec(StreamObject):
 
     @classmethod
     def init_from_named_basis(cls, name, atm, **kwargs):
+        ''' Initialize a BasisSpec object from a named basis set.
+
+            Args:
+                name (str):
+                    Basis-set name recognized by Basis Set Exchange.
+                atm (str):
+                    Atomic symbol of the basis to load.
+                kwargs (dict):
+                    Additional arguments passed to `init_from_pyscf_basis`.
+
+            Return:
+                spec (BasisSpec):
+                    BasisSpec object initialized from the named basis.
+        '''
         basis = get_named_basis(name, atm)
         return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
 

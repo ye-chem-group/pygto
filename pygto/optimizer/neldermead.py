@@ -7,6 +7,36 @@ from pygto.optimizer.optimizer import Optimizer
 
 
 class NelderMead(Optimizer):
+    ''' Derivative-free Nelder-Mead simplex optimizer.
+
+        Args:
+            spec (BasisSpec):
+                Basis specification to optimize.
+            cost_func (callable):
+                Function that accepts a BasisSpec and returns its scalar cost.
+            verbose (int):
+                Logging verbosity. Default is None.
+
+        Attributes:
+            initial_step_abs (float):
+                Absolute initial displacement for near-zero parameters. Default is
+                `2.5e-4`.
+            initial_step_rel (float):
+                Relative initial displacement for other parameters. Default is 0.05.
+            reflection (float):
+                Reflection coefficient. Default is 1.
+            expansion (float):
+                Expansion coefficient. Default is 2.
+            contraction (float):
+                Contraction coefficient. Default is 0.5.
+            shrink (float):
+                Simplex shrink coefficient. Default is 0.5.
+            simplex_spread_tol (float):
+                Simplex-spread tolerance used to detect convergence. Default is
+                `1e-8`.
+            max_inner (int):
+                Maximum inner simplex iterations per outer cycle. Default is 100.
+    '''
 
     def __init__(self, spec, cost_func, verbose=None):
         super().__init__(spec, cost_func, verbose=verbose)
@@ -24,6 +54,7 @@ class NelderMead(Optimizer):
         self.fs = None
 
     def dump_flags(self):
+        ''' Log general and Nelder-Mead-specific optimizer settings. '''
         Optimizer.dump_flags(self)
         self.log_info('initial_step_abs= %.3e' % self.initial_step_abs)
         self.log_info('initial_step_rel= %.3e' % self.initial_step_rel)
@@ -36,6 +67,7 @@ class NelderMead(Optimizer):
         self.log_info('')
 
     def initialize(self):
+        ''' Initialize optimizer state and construct the starting simplex. '''
         super().initialize()
 
         xs, fs = self.init_simplex()
@@ -43,6 +75,14 @@ class NelderMead(Optimizer):
         self.status = 'initialized'
 
     def init_simplex(self):
+        ''' Construct and evaluate the initial simplex.
+
+            Return:
+                xs (ndarray):
+                    Simplex vertices with shape `(nparam + 1, nparam)`.
+                fs (ndarray):
+                    Objective values at the simplex vertices.
+        '''
         x0 = self.parameters
         xs = [x0.copy()]
         fs = [self.objective]
@@ -59,11 +99,20 @@ class NelderMead(Optimizer):
         return np.asarray(xs), np.asarray(fs)
 
     def update_simplex(self, xs, fs):
+        ''' Sort and store a simplex, then select its best vertex.
+
+            Args:
+                xs (array_like):
+                    Simplex vertices.
+                fs (array_like):
+                    Objective values at the vertices.
+        '''
         self.xs, self.fs = sort_simplex(xs, fs)
         self.parameters = self.xs[0].copy()
         self.objective = float(self.fs[0])
 
     def next_step(self):
+        ''' Advance the simplex until its best objective changes or it stalls. '''
         self.status = 'started'
         self.message = None
 
@@ -152,6 +201,20 @@ class NelderMead(Optimizer):
 
 
 def sort_simplex(xs, fs):
+    ''' Sort simplex vertices by ascending objective value.
+
+        Args:
+            xs (array_like):
+                Simplex vertices.
+            fs (array_like):
+                Objective values at the vertices.
+
+        Return:
+            xs (ndarray):
+                Sorted simplex vertices.
+            fs (ndarray):
+                Sorted objective values.
+    '''
     xs = np.asarray(xs)
     fs = np.asarray(fs)
     order = np.argsort(fs)
