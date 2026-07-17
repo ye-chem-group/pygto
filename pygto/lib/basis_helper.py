@@ -92,20 +92,28 @@ def load_basis_nwchem(basis_str_or_file, atm):
     return basis
 
 
-def get_header_nwchem(basis):
+def get_header_nwchem(basis, keep_l=None):
     ''' Generate an NWChem basis header.
 
         Args:
             basis (list):
                 Basis data in PySCF format.
+            keep_l (int or list of int):
+                Angular momenta to keep. Default is None, which keeps all channels.
 
         Return:
             NWChem basis header string.
     '''
+    if keep_l is not None:
+        from .numeric_helper import to_int_list
+        keep_l = to_int_list(keep_l)
+    else:
+        keep_l = list(range(LMAX+1))
     nprims = np.zeros(LMAX+1, dtype=int)
     nctrs = np.zeros(LMAX+1, dtype=int)
     for b in basis:
         l = int(b[0])
+        if not l in keep_l: continue
         ecs = np.asarray(b[1:])
         if ecs.ndim == 1: ecs.reshape(1,-1)
         nprims[l] += ecs.shape[0]
@@ -116,7 +124,7 @@ def get_header_nwchem(basis):
     return header
 
 
-def dump_basis_nwchem(basis, stdout=None, atm=None, header=True, sort=True):
+def dump_basis_nwchem(basis, stdout=None, atm=None, header=True, sort=True, keep_l=None):
     ''' Write basis data in NWChem format.
 
         Args:
@@ -130,16 +138,18 @@ def dump_basis_nwchem(basis, stdout=None, atm=None, header=True, sort=True):
                 Whether to include the basis header. Default is True.
             sort (bool):
                 Whether to sort exponents in descending order. Default is True.
+            keep_l (int or list of int):
+                Angular momenta to keep. Default is None, which keeps all channels.
 
         Return:
             None.
     '''
     if stdout is None: stdout = sys.stdout
-    s = get_basis_str_nwchem(basis, atm, header, sort)
+    s = get_basis_str_nwchem(basis, atm, header, sort, keep_l)
     stdout.write(s+'\n')
 
 
-def get_basis_str_nwchem(basis, atm=None, header=True, sort=True):
+def get_basis_str_nwchem(basis, atm=None, header=True, sort=True, keep_l=None):
     ''' Convert basis data to an NWChem-format string.
 
         Args:
@@ -151,19 +161,28 @@ def get_basis_str_nwchem(basis, atm=None, header=True, sort=True):
                 Whether to include the basis header. Default is True.
             sort (bool):
                 Whether to sort exponents in descending order. Default is True.
+            keep_l (int or list of int):
+                Angular momenta to keep. Default is None, which keeps all channels.
 
         Return:
             NWChem-format basis string.
     '''
     if atm is None: atm = 'X'
+    if keep_l is not None:
+        from .numeric_helper import to_int_list
+        keep_l = to_int_list(keep_l)
+    else:
+        keep_l = list(range(LMAX+1))
     if header:
-        s = [get_header_nwchem(basis)]
+        s = [get_header_nwchem(basis, keep_l)]
     else:
         s = []
 
     basis_data = []
     for b in basis:
         l = int(b[0])
+        if not l in keep_l:
+            continue
         ecs = np.asarray(b[1:])
         if ecs.ndim == 1: ecs = ecs.reshape(1,-1)
         if sort:
@@ -186,6 +205,24 @@ def get_basis_str_nwchem(basis, atm=None, header=True, sort=True):
 
 
 def get_named_basis(name, atm, version=None):
+    ''' Load a named basis set from Basis Set Exchange.
+
+        Args:
+            name (str):
+                Basis-set name.
+            atm (str):
+                Atomic symbol to load.
+            version (int or str):
+                Basis-set version. Default is None, which uses the current version.
+
+        Return:
+            basis (list):
+                Basis data in PySCF format.
+
+        Note:
+            The installed `basis_set_exchange` package is used when available;
+            otherwise the basis is requested from the Basis Set Exchange REST API.
+    '''
     try:
         import basis_set_exchange as bse
     except ModuleNotFoundError as err:
@@ -204,6 +241,22 @@ def get_named_basis(name, atm, version=None):
 
 
 def _download_named_basis(name, atm, version=None, timeout=20):
+    ''' Download a named basis through the Basis Set Exchange REST API.
+
+        Args:
+            name (str):
+                Basis-set name.
+            atm (str):
+                Atomic symbol to load.
+            version (int or str):
+                Basis-set version. Default is None, which uses the current version.
+            timeout (float):
+                Network timeout in seconds. Default is 20.
+
+        Return:
+            basis (list):
+                Basis data in PySCF format.
+    '''
     from urllib.error import HTTPError, URLError
     from urllib.parse import quote, urlencode
     from urllib.request import Request, urlopen

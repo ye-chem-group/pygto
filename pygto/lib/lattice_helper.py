@@ -7,23 +7,47 @@ from .flow_helper import StreamObject
 
 
 class Lattice(StreamObject):
+    ''' Atomic coordinates and lattice vectors in Angstrom.
+
+        Args:
+            atom (list):
+                Atomic symbols and Cartesian coordinates in PySCF format.
+            a (array_like):
+                Lattice vectors with shape `(3, 3)`.
+    '''
 
     def __init__(self, atom, a):
-        ''' `atom` and `a` are PySCF format in Angstrom
-        '''
         self.atom = atom
         self.a = a
 
     @classmethod
     def init_from_vasp_poscar(cls, fvasp):
-        ''' Initialize Lattice from a VASP POSCAR file
+        ''' Initialize a lattice from a VASP POSCAR file.
+
+            Args:
+                fvasp (str):
+                    Path to POSCAR file.
+
+            Return:
+                lattice (Lattice):
+                    Parsed lattice.
         '''
         atom, a = read_vasp_poscar(fvasp)
         return cls(atom, a)
 
     @classmethod
     def init_from_xyz_alat(cls, fxyz, falat):
-        ''' Initialize Lattice from a XYZ file and a ALAT file
+        ''' Initialize a lattice from XYZ coordinates and lattice vectors.
+
+            Args:
+                fxyz (str):
+                    Path to XYZ file.
+                falat (str):
+                    Path to text file containing the lattice vectors.
+
+            Return:
+                lattice (Lattice):
+                    Parsed lattice.
         '''
         atom = read_xyz(fxyz)
         a = np.loadtxt(falat)
@@ -31,7 +55,15 @@ class Lattice(StreamObject):
 
     @classmethod
     def init_from_pyscf_cell(cls, cell):
-        ''' Initialize Lattice from a pyscf.gto.Cell object.
+        ''' Initialize a lattice from a PySCF periodic cell.
+
+            Args:
+                cell (pyscf.pbc.gto.Cell):
+                    Built PySCF periodic cell.
+
+            Return:
+                lattice (Lattice):
+                    Lattice converted to Angstrom.
         '''
         atom = [(atm,np.asarray(r)*BOHR) for atm,r in cell._atom]
         a = cell.lattice_vectors() * BOHR
@@ -39,31 +71,89 @@ class Lattice(StreamObject):
 
     @property
     def atms(self):
+        ''' Return atomic symbols in input order.
+
+            Return:
+                atms (list of str):
+                    Atomic symbols.
+        '''
         return [x[0] for x in self.atom]
 
     @property
     def rs(self):
+        ''' Return Cartesian atomic coordinates.
+
+            Return:
+                coordinates (ndarray):
+                    Coordinates in Angstrom.
+        '''
         return np.asarray([x[1] for x in self.atom])
 
     def get_scaled_atom(self, scale=None):
+        ''' Return atomic coordinates with an optional scale applied.
+
+            Args:
+                scale (float):
+                    Coordinate scale factor. Default is None, which leaves coordinates
+                    unchanged.
+
+            Return:
+                atom (list):
+                    Atomic symbols and Cartesian coordinates in PySCF format.
+        '''
         if scale is None:
             return self.atom
         return [(atm,np.asarray(r)*scale) for atm,r in self.atom]
 
     def get_scaled_a(self, scale=None):
+        ''' Return lattice vectors with an optional scale applied.
+
+            Args:
+                scale (float):
+                    Lattice scale factor. Default is None, which leaves vectors
+                    unchanged.
+
+            Return:
+                a (array_like):
+                    Lattice vectors in Angstrom.
+        '''
         if scale is None:
             return self.a
         return self.a * scale
 
     def get_scaled_lattice(self, scale=None):
-        ''' Return PySCF-format `atom` and `a` with the `scale` factor applied.
+        ''' Return coordinates and lattice vectors with an optional scale applied.
+
+            Args:
+                scale (float):
+                    Uniform scale factor. Default is None.
+
+            Return:
+                atom (list):
+                    Scaled atomic coordinates in PySCF format.
+                a (array_like):
+                    Scaled lattice vectors in Angstrom.
         '''
         atom = self.get_scaled_atom(scale)
         a = self.get_scaled_a(scale)
         return atom, a
 
     def get_pyscf_cell(self, basis=None, scale=None, symmetry=False, cell_settings=None):
-        ''' Return a PySCF pbc.gto.Cell object.
+        ''' Build and return a PySCF periodic cell.
+
+            Args:
+                basis (str, dict, or list):
+                    Basis accepted by PySCF. Default is None, which uses "def2-svp".
+                scale (float):
+                    Uniform lattice scale factor. Default is None.
+                symmetry (bool):
+                    Whether to enable space-group symmetry. Default is False.
+                cell_settings (dict):
+                    Additional Cell attributes set before building. Default is None.
+
+            Return:
+                cell (pyscf.pbc.gto.Cell):
+                    Built periodic cell.
         '''
         from pyscf.pbc import gto
         if basis is None: basis = 'def2-svp'
@@ -78,6 +168,17 @@ class Lattice(StreamObject):
         return cell
 
     def dump_xyz(self, stdout=None, scale=None, comment=None):
+        ''' Write atomic coordinates in XYZ format.
+
+            Args:
+                stdout (file-like object):
+                    Destination. Default is None, which uses `self.stdout`.
+                scale (float):
+                    Coordinate scale factor. Default is None.
+                comment (str):
+                    Single-line XYZ comment. Default is None, which writes an empty
+                    comment line.
+        '''
         if stdout is None: stdout = self.stdout
         atom = self.get_scaled_atom(scale)
         natm = len(atom)
@@ -98,12 +199,31 @@ class Lattice(StreamObject):
         stdout.write(sout + '\n')
 
     def dump_a(self, stdout=None, scale=None):
+        ''' Write lattice vectors as a numeric text block.
+
+            Args:
+                stdout (file-like object):
+                    Destination. Default is None, which uses `self.stdout`.
+                scale (float):
+                    Lattice scale factor. Default is None.
+        '''
         if stdout is None: stdout = self.stdout
         a = self.get_scaled_a(scale)
         sout = '\n'.join([' '.join([f'{y: .15e}' for y in x]) for x in a])
         stdout.write(sout + '\n')
 
     def dump_vasp_poscar(self, stdout=None, scale=None, comment=None):
+        ''' Write the lattice in VASP POSCAR format.
+
+            Args:
+                stdout (file-like object):
+                    Destination. Default is None, which uses `self.stdout`.
+                scale (float):
+                    Uniform lattice scale factor. Default is None.
+                comment (str):
+                    Single-line POSCAR header. Default is None, which generates a
+                    composition header.
+        '''
         if stdout is None: stdout = self.stdout
 
         if isinstance(comment, str) and len(comment.splitlines()) > 1:
@@ -117,11 +237,22 @@ class Lattice(StreamObject):
 
 
 def read_vasp_poscar(fvasp):
-    ''' Parse a VASP POSCAR into PySCF `atom` and `a`.
+    ''' Parse a VASP POSCAR file.
+
+        Args:
+            fvasp (str):
+                Path to POSCAR file.
+
+        Return:
+            atom (list):
+                Atomic symbols and Cartesian coordinates in PySCF format.
+            a (ndarray):
+                Lattice vectors in Angstrom.
     '''
     fdata = open(fvasp, 'r').read().rstrip('\n').split('\n')
     comment = fdata[0]
     def read_line(l, dtype=float, nelem=None):
+        ''' Parse selected whitespace-separated fields from one line. '''
         spl = l.split()
         if nelem is not None: spl = spl[:nelem]
         return list(map(dtype,spl))
@@ -163,6 +294,20 @@ def read_vasp_poscar(fvasp):
 
 
 def write_vasp_poscar(atom, alat, header=None):
+    ''' Convert a lattice to a VASP POSCAR string.
+
+        Args:
+            atom (list):
+                Atomic symbols and Cartesian coordinates in PySCF format.
+            alat (array_like):
+                Lattice vectors with shape `(3, 3)`.
+            header (str):
+                POSCAR header. Default is None, which generates a composition header.
+
+        Return:
+            poscar (str):
+                POSCAR-formatted text.
+    '''
     atms = np.asarray([x[0] for x in atom])
     rs = np.asarray([x[1] for x in atom]).reshape(-1,3)
 
@@ -191,20 +336,23 @@ def write_vasp_poscar(atom, alat, header=None):
 
 
 def read_xyz(fxyz, kind='list', parse_alat=False):
-    r''' Parse xyz file to PySCF atom.
+    r''' Parse an XYZ file into PySCF-format atoms.
 
-    Args:
-        fxyz (str):
-            Path to a xyz file. The first two lines in the file are ignored.
-        kind (str):
-            Determine return type.
-            'str'  : return string, e.g., 'H 0 0 0 \n H 1 0 0'
-            'list' : return list, e.g., [['H', [0,0,0]], ["H", [1,0,0]]]
-        parse_alat (bool):
-            If True, the comment line (i.e., second line in the xyz file) will
-            be parsed as lattice constant and returned as the second entry.
-            The comment line must be nine numbers separated by space(s) which
-            correspond to cell.a.reshape(-1).
+        Args:
+            fxyz (str):
+                Path to XYZ file.
+            kind (str):
+                Return atoms as a string for "str" or a list for "list"/"lst".
+                Default is "list".
+            parse_alat (bool):
+                Whether to parse nine lattice-vector values from the comment line.
+                Default is False.
+
+        Return:
+            atom (str or list):
+                Atomic coordinates in the requested representation.
+            alat (ndarray, optional):
+                Lattice vectors returned only when `parse_alat` is True.
     '''
     fdata = open(fxyz,'r').read().rstrip('\n').split('\n')
     if kind.startswith('str'):

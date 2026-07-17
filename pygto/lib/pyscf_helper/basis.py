@@ -12,11 +12,11 @@ def load_basis(fbas, atm, unc=False, keep_l=None):
             unc (bool):
                 Whether to decontract the basis. Default is False.
             keep_l (int or list of int):
-                Whether to keep selected angular momentum channels. Default is None.
-                Note: the function does not check whether input list contains
+                Angular momenta to keep. Default is None, which keeps all channels.
 
         Return:
-            PySCF-format basis, i.e.,
+            basis (list):
+                PySCF-format basis, i.e.,
                 [
                     (l1, (e1, c11, c12), (e2, c21, c22), ...),
                     (l2, ...),

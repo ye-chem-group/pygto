@@ -6,3 +6,5 @@ from .io_helper import *
 from .basis_helper import *
 
 from . import chkfile_helper
+
+from .pyscf_helper import has_pyscf

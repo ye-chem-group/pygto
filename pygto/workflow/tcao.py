@@ -5,28 +5,42 @@ from pygto.optimizer import ScheduledOptimizer, Optimizer
 
 
 class TargetCostAtomicOptimization(StreamObject):
-    ''' Optimizing basis to the target cost value.
+    ''' Reduce a basis while keeping its cost increase below a target tolerance.
 
-        Starting from a sufficiently large initial basis, this module progressively reduce
-        the size of the basis and monitor the cost value increase. It stops by identifying
-        the smallest basis whose error (defined as the cost of that basis subtract the cost
-        of the initial basis after optimization) lies within given tolerance.
-
-        Input:
-            spec (BasisSpec):
-                Initial basis for reduction. We strongly recommend using a known, large
-                basis, such as the all-electron cc-pVQZ set. The module is "smart" enough
-                to trim the initial overcomplete basis.
-            cost_func (Callable):
-                cost_func(spec) -> cost.
-            ftol (float):
-                Tolerance for aborting the recursive basis reduction. Default is 1e-3 (Ha).
+        Starting from a sufficiently large basis, this workflow progressively removes
+        primitives and reoptimizes exponents. The error is the cost increase relative
+        to the optimized initial basis.
 
         Args:
+            spec (BasisSpec):
+                Initial basis specification for reduction.
+            cost_func (callable):
+                Function accepting a BasisSpec and returning a scalar cost.
+            ftol (float):
+                Maximum accepted cost increase. Default is `1e-3` Hartree.
+            verbose (int):
+                Logging verbosity. Default is None.
+
+        Attributes:
             max_cycle (int):
-                Maximum cycle for basis reduction. Each cycle will trim multiple primitives
-                so this arg does not need to be very large for a reasonable input basis.
-                Default is 10.
+                Maximum basis-reduction cycles. Default is 10.
+            init_ftol_rescaling (float):
+                Factor applied to `ftol` during initial rigid filtering. Default is 0.1.
+            force_block_filter (bool):
+                Whether retained rigid candidates must form a contiguous exponent block.
+                Default is True.
+            freeze_and_thaw (bool):
+                Whether to optimize a reduced channel before jointly relaxing selected
+                channels. Default is True.
+            candidate_generation (str):
+                Candidate strategy, "heuristic" or "rigid". Default is "heuristic".
+            candidate_maxnum (int):
+                Maximum number of rigid candidates optimized per channel. Default is 2.
+            verbose_optimizer (int or None):
+                Candidate-optimizer verbosity. Default is None, which derives it from
+                this object's verbosity.
+            chkfile (str or None):
+                Checkpoint path. Default is None, which disables checkpoint output.
     '''
 
     def __init__(self, spec, cost_func, ftol=1e-3, verbose=None):
@@ -53,6 +67,7 @@ class TargetCostAtomicOptimization(StreamObject):
         self.converged = False
 
     def dump_flags(self):
+        ''' Log TCAO settings. '''
         self.log_info('\n')
         self.log_info('******** %s ********' % (self.__class__.__name__))
         self.log_info('ftol= %.10g' % self.ftol)
@@ -67,6 +82,28 @@ class TargetCostAtomicOptimization(StreamObject):
         self.log_info('')
 
     def filter_rigid(self, spec, ftol=None, select_channel=None, cost_init=None):
+        ''' Remove individually safe exponents before reoptimizing selected channels.
+
+            Args:
+                spec (BasisSpec):
+                    Basis specification to filter.
+                ftol (float):
+                    Maximum accepted cost increase. Default is None, which uses
+                    `self.ftol`.
+                select_channel (int or list of int):
+                    Channels eligible for filtering. Default is None, which selects all.
+                cost_init (float):
+                    Reference cost. Default is None, which uses the stored initial cost
+                    when available.
+
+            Return:
+                cost (float):
+                    Cost after filtering and optional reoptimization.
+                spec (BasisSpec):
+                    Filtered basis specification.
+                nochange (bool):
+                    Whether no exponent was removed.
+        '''
         if ftol is None: ftol = self.ftol
 
         if select_channel is None:
@@ -129,15 +166,39 @@ class TargetCostAtomicOptimization(StreamObject):
         return cost, spec, nochange
 
     def _candidates_by_heuristic(self, spec, channel_idx):
+        ''' Generate rescaled one-exponent-removal candidates for a channel. '''
         return spec.remove_one_exponent_candidates(channel_idx)
 
     def _candidates_generation_rigid(self, spec, channel_idx):
+        ''' Return the lowest-cost rigid removal candidates for a channel. '''
         ncandidate = max(1,self.candidate_maxnum)
         candidates = spec.remove_one_exponent_candidates_rigid(channel_idx)
         fs = [self.cost_func(spec1) for spec1 in candidates]
         return [candidates[i] for i in np.argsort(fs)[:ncandidate]]
 
     def filter_optimization(self, spec, select_channel=None, cost_init=None, force_accept=False):
+        ''' Select optimized one-exponent-removal candidates channel by channel.
+
+            Args:
+                spec (BasisSpec):
+                    Basis specification to reduce.
+                select_channel (int or list of int):
+                    Channels eligible for reduction. Default is None, which selects all.
+                cost_init (float):
+                    Reference cost. Default is None, which uses the stored initial cost
+                    when available.
+                force_accept (bool):
+                    Whether to accept the lowest-cost candidate regardless of `ftol`.
+                    Default is False.
+
+            Return:
+                cost (float):
+                    Cost of the resulting basis.
+                spec (BasisSpec):
+                    Reduced and optimized basis specification.
+                nochange (bool):
+                    Whether no candidate was accepted.
+        '''
         if select_channel is None:
             select_channel = list(range(spec.nchannel))
         else:
@@ -208,6 +269,7 @@ class TargetCostAtomicOptimization(StreamObject):
         return cost, spec, nochange
 
     def initialize(self):
+        ''' Rigidly filter and optimize the initial basis. '''
         spec = self.spec.copy()
         ftol_init = self.ftol*self.init_ftol_rescaling
         self.cost_init, spec, nochange = self.filter_rigid(spec, ftol=ftol_init)
@@ -218,6 +280,18 @@ class TargetCostAtomicOptimization(StreamObject):
             self.spec.replace_channel_(i, c)
 
     def kernel(self, **kwargs):
+        ''' Run target-cost basis reduction.
+
+            Args:
+                kwargs (dict):
+                    Attribute overrides applied before execution.
+
+            Return:
+                cost (float):
+                    Final scalar cost.
+                spec (BasisSpec):
+                    Reduced and optimized basis specification.
+        '''
         self.set(**kwargs)
 
         self.dump_flags()
@@ -250,6 +324,25 @@ class TargetCostAtomicOptimization(StreamObject):
         return self.cost, self.spec
 
     def optimize_candidate(self, spec, cost_func=None, active_channel=None, verbose=None):
+        ''' Optimize a candidate basis with ScheduledOptimizer.
+
+            Args:
+                spec (BasisSpec):
+                    Candidate basis specification.
+                cost_func (callable):
+                    Cost function. Default is None, which uses `self.cost_func`.
+                active_channel (int or list of int):
+                    Channels to optimize. Default is None, which activates all.
+                verbose (int):
+                    Optimizer verbosity. Default is None, which derives it from this
+                    object's verbosity.
+
+            Return:
+                cost (float):
+                    Optimized candidate cost.
+                spec (BasisSpec):
+                    Optimized candidate basis.
+        '''
         if cost_func is None: cost_func = self.cost_func
         if verbose is None: verbose = self.verbose_optimizer
         if verbose is None: verbose = max(2, self.verbose-3)
@@ -264,6 +357,7 @@ class TargetCostAtomicOptimization(StreamObject):
         return cost, spec
 
     def print_init(self):
+        ''' Log the optimized initial basis and reference cost. '''
         self.log_note('Init basis:')
         if self.verbose >= 3:
             self.spec.dump_basis(stdout=self.stdout)
@@ -272,11 +366,20 @@ class TargetCostAtomicOptimization(StreamObject):
         self.log_debug('')
 
     def print_step(self, cycle, spec):
+        ''' Log one TCAO reduction cycle.
+
+            Args:
+                cycle (int):
+                    One-based cycle index.
+                spec (BasisSpec):
+                    Current basis specification.
+        '''
         self.log_info('TCAO cycle= %d  cost= %.10f  delta_f= %.3e  structure= %s' %
                       (cycle, self.cost, self.cost-self.cost_init, spec.structure))
         self.log_debug('')
 
     def print_final(self):
+        ''' Log the final reduced basis and cost increase. '''
         self.log_note('Final cost= %.10f  delta_f= %.3e  structure= %s' %
                       (self.cost, self.cost-self.cost_init, self.spec.structure), space=True)
         self.log_note('Final basis:')
@@ -291,40 +394,31 @@ TCAO = TargetCostAtomicOptimization
 
 
 class ChannelReduction(TCAO):
-    ''' Progressively reduction of channel size by cost criterion.
+    ''' Generate progressively smaller channels ordered by increasing cost.
 
-        Given the initial basis, each channel will be progressively compressed by removing
-        an exponent followed by reoptimization of that channel (with other channels kept
-        frozen). This process recursively generates a series of channels of decreasing size
-        and increasing cost valuee. The process aborts when the error of the current channel,
-        defined as the current cost subtract the initial cost, exceeds a given tolerance.
-
-        Input:
-            spec (BasisSpec):
-                Initial basis for reduction. We strongly recommend using initial basis
-                generated by the TargetCostAtomicOptimization (TCAO) with a reasonably
-                low `ftol`, which gaurantees a reasonable starting point.
-            cost_func (Callable):
-                cost_func(spec) -> cost.
-            ftol (float):
-                Tolerance for aborting the recursive channel reduction. Default is 1e-2 (Ha).
+        Each selected channel is compressed by removing one exponent and reoptimizing
+        that channel while keeping other channels frozen. Reduction stops after the cost
+        increase exceeds `ftol` or only one exponent remains.
 
         Args:
+            spec (BasisSpec):
+                Initial basis specification.
+            cost_func (callable):
+                Function accepting a BasisSpec and returning a scalar cost.
+            ftol (float):
+                Cost-increase stopping tolerance. Default is `1e-2` Hartree.
+            verbose (int):
+                Logging verbosity. Default is None.
+
+        Attributes:
             channel_idxs (int or list of int):
-                Specify the channels to perform reduction. Default is None, which means
-                all channels in `spec` will be reduced.
-            chkfile (str):
-                The file where initial and optimized basis will be saved.
-                - "spec": input BasisSpec
-                - "channel_[idx]/nbas_[n]": channel series generated by reduction
-                Default is None, meaning that chkfile is not written.
-            outdir (str):
-                Directory where basis data and summary will be written. For each channel,
-                a subdir "[outdir]/channel_[idx]" will be created. Inside this subdir, one
-                will find:
-                - "summary.csv": a CSV file summarizes the structure, cost, and delta_f
-                  for that channel.
-                - "[n].dat": basis set data for that channel of `n` primitives.
+                Channels to reduce. Default is None, which selects all channels.
+            chkfile (str or None):
+                Checkpoint file for the input BasisSpec and generated channel series.
+                Default is None.
+            outdir (str or None):
+                Directory for channel summaries and NWChem basis files. Default is None,
+                which uses "summary".
     '''
 
     def __init__(self, spec, cost_func, ftol=1e-2, verbose=None):
@@ -337,12 +431,14 @@ class ChannelReduction(TCAO):
         self.results = None
 
     def dump_flags(self):
+        ''' Log channel-reduction settings. '''
         TCAO.dump_flags(self)
         self.log_info('channel_idxs= %s' % (str(self.channel_idxs)))
         self.log_info('outdir= %s' % (str(self.outdir)))
         self.log_info('')
 
     def initialize(self):
+        ''' Reset channel-reduction results and evaluate the reference cost. '''
         self.converged = []
         self.stop_reason = []
         self.results = []
@@ -350,6 +446,17 @@ class ChannelReduction(TCAO):
         self.cost = None    # cost is intentionally not used for ChannelReduction
 
     def kernel(self, **kwargs):
+        ''' Generate reduction series for selected channels.
+
+            Args:
+                kwargs (dict):
+                    Attribute overrides applied before execution.
+
+            Return:
+                results (list of tuple):
+                    `(channel_idx, series)` pairs, where each series contains
+                    `(channel, cost, delta_f)` entries.
+        '''
         self.set(**kwargs)
 
         self.initialize()
@@ -429,6 +536,7 @@ class ChannelReduction(TCAO):
         return self.results
 
     def print_init(self):
+        ''' Log the initial basis and reference cost. '''
         self.log_note('Init basis structure: %s  cost= %.10f' % (
             self.spec.structure, self.cost_init
         ))
@@ -438,6 +546,18 @@ class ChannelReduction(TCAO):
         self.log_info('')
 
     def dump_chkfile(self, channel, channel_idx, chkfile=None, first_pass=False):
+        ''' Save one generated channel to a checkpoint file.
+
+            Args:
+                channel (Channel):
+                    Channel to save.
+                channel_idx (int):
+                    Index of the reduced channel in the parent basis.
+                chkfile (str):
+                    Checkpoint path. Default is None, which uses `self.chkfile`.
+                first_pass (bool):
+                    Whether to clear earlier results for this channel. Default is False.
+        '''
         if chkfile is None: chkfile = self.chkfile
         if chkfile is not None:
             if first_pass:
@@ -451,19 +571,20 @@ class ChannelReduction(TCAO):
             channel.dump_chkfile(chkfile, prefix=prefix)
 
     def dump_summary(self, channel_idx, results, outdir=None):
-        ''' Save channel summary to disk.
+        ''' Save a channel-reduction series and CSV summary to disk.
 
-            For each channel, a directory "[outdir]/channel_[idx]" is created.
-                - A "summary.csv" file will be created in this directory that summarizes
-                  the structure, cost and df of the series generated for this channel.
-                - A series of "[nbas].dat" files will be generated, which are NWChem
-                  format basis files for the series generated for this channel.
+            Args:
+                channel_idx (int):
+                    Index of the reduced channel.
+                results (list of tuple):
+                    `(channel, cost, delta_f)` entries.
+                outdir (str):
+                    Parent output directory. Default is None, which uses `self.outdir`
+                    and then "summary".
 
             Note:
-                - If `outdir` is None, outdir will be set to self.oudir. If still None,
-                  "summary" will be used as default.
-                - If "[outdir]/channel_[idx]" already contains "summary.csv" and "*.dat"
-                  files, they will be removed. Other files will be retained.
+                Existing `summary.csv` and `.dat` files in this channel's output
+                directory are replaced; unrelated files are retained.
         '''
         import os
         from pygto.lib import mkdir

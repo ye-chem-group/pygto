@@ -3,13 +3,33 @@ import numpy as np
 
 
 def softplus(z):
-    ''' Return np.log(1. + np.exp(z)). The use of `np.logaddexp` is for numerical stability.
+    ''' Evaluate the numerically stable softplus function.
+
+        Args:
+            z (array_like):
+                Input values.
+
+        Return:
+            value (scalar or ndarray):
+                `log(1 + exp(z))`.
     '''
     return np.logaddexp(0.0, z)
 
 
 def soft_clip(x, xmin, xmax, s=10.0):
-    ''' Soft clip input x so that xmin <= soft_clip(x) <= xmax.
+    ''' Smoothly constrain values to an interval.
+
+        Args:
+            x (array_like):
+                Unconstrained input values.
+            xmin/xmax (float):
+                Lower and upper bounds.
+            s (float):
+                Clipping sharpness. Default is 10.
+
+        Return:
+            value (scalar or ndarray):
+                Soft-clipped values between `xmin` and `xmax`.
     '''
     x = np.asarray(x)
     return (
@@ -20,7 +40,19 @@ def soft_clip(x, xmin, xmax, s=10.0):
 
 
 def soft_log_clip(x, amin, amax, s=10.0):
-    ''' Soft clip input x in log space so that amin <= soft_log_clip(x) <= amax.
+    ''' Map unconstrained log parameters to a positive bounded interval.
+
+        Args:
+            x (array_like):
+                Unconstrained log-space parameters.
+            amin/amax (float):
+                Positive lower and upper bounds.
+            s (float):
+                Clipping sharpness. Default is 10.
+
+        Return:
+            value (scalar or ndarray):
+                Positive values between `amin` and `amax`.
     '''
     x = np.asarray(x)
 
@@ -32,10 +64,22 @@ def soft_log_clip(x, amin, amax, s=10.0):
 
 
 def inverse_soft_clip(y, xmin, xmax, s=10.0, margin=None):
-    ''' For a given y = soft_clip(x, xmin, xmax, s), find x.
+    ''' Invert `soft_clip` after clipping values to a safe interior.
 
-        Safe by default: if y is outside [xmin, xmax], or too close to the
-        boundary, it is clipped to the interior before inversion.
+        Args:
+            y (array_like):
+                Soft-clipped values.
+            xmin/xmax (float):
+                Lower and upper bounds.
+            s (float):
+                Clipping sharpness. Default is 10.
+            margin (float):
+                Distance retained from each boundary. Default is None, which uses
+                `1e-3 * (xmax - xmin)`.
+
+        Return:
+            x (scalar or ndarray):
+                Recovered unconstrained parameters.
     '''
     y_is_scalar = np.isscalar(y)
     y = np.asarray(y, dtype=float)
@@ -66,9 +110,22 @@ def inverse_soft_clip(y, xmin, xmax, s=10.0, margin=None):
 
 
 def inverse_soft_log_clip(y, amin, amax, s=10.0, margin=None):
-    ''' For a given y = soft_log_clip(x, amin, amax, s), find x.
+    ''' Invert `soft_log_clip` using a safe log-space interior.
 
-        Safe by default: y is clipped to the interior in log space before inversion.
+        Args:
+            y (array_like):
+                Positive bounded values.
+            amin/amax (float):
+                Positive lower and upper bounds.
+            s (float):
+                Clipping sharpness. Default is 10.
+            margin (float):
+                Log-space distance retained from each boundary. Default is None,
+                which uses `1e-3 * (log(amax) - log(amin))`.
+
+        Return:
+            x (scalar or ndarray):
+                Recovered unconstrained log parameters.
     '''
     if amin <= 0 or amax <= 0:
         raise ValueError("amin and amax must be positive for log-space clipping.")
@@ -109,6 +166,13 @@ def inverse_soft_log_clip(y, amin, amax, s=10.0, margin=None):
 
 
 class FloatSum:
+    ''' A named collection of floating-point terms with scalar arithmetic.
+
+        Args:
+            kwargs (dict):
+                Named values convertible to float.
+    '''
+
     def __init__(self, **kwargs):
         for key, val in kwargs.items():
             try:
@@ -119,41 +183,68 @@ class FloatSum:
 
     @property
     def value(self):
+        ''' Return the sum of all named terms.
+
+            Return:
+                value (float):
+                    Sum of stored values.
+        '''
         return sum(self.__dict__.values())
 
     def __float__(self):
+        ''' Convert the collection to its summed value. '''
         return self.value
 
     def __sub__(self, other):
+        ''' Subtract another value from the summed value. '''
         return self.value - other
 
     def __rsub__(self, other):
+        ''' Subtract the summed value from another value. '''
         return other - self.value
 
     def __add__(self, other):
+        ''' Add another value to the summed value. '''
         return self.value + other
 
     def __radd__(self, other):
+        ''' Add the summed value to another value. '''
         return other + self.value
 
     def __mul__(self, other):
+        ''' Multiply the summed value by another value. '''
         return self.value * other
 
     def __rmul__(self, other):
+        ''' Multiply another value by the summed value. '''
         return other * self.value
 
     def __truediv__(self, other):
+        ''' Divide the summed value by another value. '''
         return self.value / other
 
     def __rtruediv__(self, other):
+        ''' Divide another value by the summed value. '''
         return other / self.value
 
     def __repr__(self):
+        ''' Return a representation containing terms and their sum. '''
         return f"{type(self).__name__}({self.__dict__}, value={self.value})"
 
 
 def filter_by_range(a, amin=None, amax=None):
-    ''' Discard elements in a outside [amin, amax].
+    ''' Discard values outside an inclusive interval.
+
+        Args:
+            a (scalar or array_like):
+                Input values.
+            amin/amax (float):
+                Lower and upper bounds. Default is None, which does not impose the
+                corresponding bound.
+
+        Return:
+            values (scalar, ndarray, or None):
+                Filtered values. A scalar outside the interval returns None.
     '''
     arr = np.asarray(a)
     mask = np.ones(arr.shape, dtype=bool)
@@ -174,6 +265,16 @@ def filter_by_range(a, amin=None, amax=None):
 
 
 def to_int_list(a):
+    ''' Normalize an integer or integer collection to a list.
+
+        Args:
+            a (int or iterable of int):
+                Integer value or a list, tuple, set, or ndarray of integers.
+
+        Return:
+            values (list of int):
+                Normalized Python integers.
+    '''
     Int = (int, np.int32, np.int64)
     Iterable = (list, tuple, set, np.ndarray)
 

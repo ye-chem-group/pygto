@@ -9,42 +9,118 @@ LOG_DEBUG = 5
 
 
 class StreamObject:
-    ''' Similar to PySCF's `lib.StreamObject` with the following attributes:
+    ''' Base object providing logging and validated attribute updates.
 
-        verbose : int
-            Control log verbosity level. Default is 3 or LOG_NOTE.
-        stdout :
-            Destination for logging. Default is sys.stdout.
+        Attributes:
+            verbose (int):
+                Logging verbosity level. Default is `LOG_NOTE`.
+            stdout (file-like object):
+                Logging destination. Default is `sys.stdout`.
     '''
     verbose = 3
     stdout = sys.stdout
 
     def log_error(self, msg, verbose=None, space=True, indent=0):
+        ''' Log an error-level message.
+
+            Args:
+                msg (str):
+                    Message text.
+                verbose (int):
+                    Verbosity used for this message. Default is None, which uses
+                    `self.verbose`.
+                space (bool):
+                    Whether to surround the message with blank lines. Default is True.
+                indent (int):
+                    Indentation level. Default is 0.
+        '''
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_ERROR:
             self.write_msg(f'ERROR: {msg}', space, indent)
 
     def log_warn(self, msg, verbose=None, space=True, indent=0):
+        ''' Log a warning-level message.
+
+            Args:
+                msg (str):
+                    Message text.
+                verbose (int):
+                    Verbosity used for this message. Default is None, which uses
+                    `self.verbose`.
+                space (bool):
+                    Whether to surround the message with blank lines. Default is True.
+                indent (int):
+                    Indentation level. Default is 0.
+        '''
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_WARN:
             self.write_msg(f'WARN: {msg}', space, indent)
 
     def log_note(self, msg, verbose=None, space=False, indent=0):
+        ''' Log a note-level message.
+
+            Args:
+                msg (str):
+                    Message text.
+                verbose (int):
+                    Verbosity used for this message. Default is None, which uses
+                    `self.verbose`.
+                space (bool):
+                    Whether to surround the message with blank lines. Default is False.
+                indent (int):
+                    Indentation level. Default is 0.
+        '''
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_NOTE:
             self.write_msg(msg, space, indent)
 
     def log_info(self, msg, verbose=None, space=False, indent=0):
+        ''' Log an information-level message.
+
+            Args:
+                msg (str):
+                    Message text.
+                verbose (int):
+                    Verbosity used for this message. Default is None, which uses
+                    `self.verbose`.
+                space (bool):
+                    Whether to surround the message with blank lines. Default is False.
+                indent (int):
+                    Indentation level. Default is 0.
+        '''
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_INFO:
             self.write_msg(msg, space, indent)
 
     def log_debug(self, msg, verbose=None, space=False, indent=0):
+        ''' Log a debug-level message.
+
+            Args:
+                msg (str):
+                    Message text.
+                verbose (int):
+                    Verbosity used for this message. Default is None, which uses
+                    `self.verbose`.
+                space (bool):
+                    Whether to surround the message with blank lines. Default is False.
+                indent (int):
+                    Indentation level. Default is 0.
+        '''
         if verbose is None: verbose = self.verbose
         if verbose >= LOG_DEBUG:
             self.write_msg(msg, space, indent)
 
     def write_msg(self, msg, space=False, indent=0):
+        ''' Write and flush a formatted message.
+
+            Args:
+                msg (str):
+                    Message text.
+                space (bool):
+                    Whether to surround the message with blank lines. Default is False.
+                indent (int):
+                    Number of two-space indentation levels. Default is 0.
+        '''
         if indent < 0:
             raise ValueError('negative indent')
         indent = '' if indent == 0 else '  ' * indent
@@ -55,10 +131,22 @@ class StreamObject:
         self.flush_stdout()
 
     def flush_stdout(self):
+        ''' Flush the logging destination when it supports flushing. '''
         if hasattr(self.stdout, 'flush'):
             self.stdout.flush()
 
     def set(self, **kwargs):
+        ''' Set existing attributes and return the object.
+
+            Args:
+                kwargs (dict):
+                    Attribute-value pairs. A function replacing a class method is
+                    bound to this instance automatically.
+
+            Return:
+                self (StreamObject):
+                    Modified object.
+        '''
         from types import MethodType
         import inspect
 

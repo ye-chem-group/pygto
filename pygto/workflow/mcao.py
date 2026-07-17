@@ -7,6 +7,34 @@ from pygto.optimizer import ScheduledOptimizer, Optimizer
 
 
 class MaterialConstraintAtomicOptimization(StreamObject):
+    ''' Optimize an atomic basis under periodic linear-dependence constraints.
+
+        Args:
+            spec (BasisSpec):
+                Initial atomic basis specification.
+            stages (list of dict):
+                Electronic-structure optimization stages. Each stage requires `prefix`
+                and `cost_func`, and may define `penalty_rescale` and `active_l`.
+            lindep_penalty_func (callable):
+                Function with signature `(spec, scale) -> (penalty, condition_number)`.
+
+        Attributes:
+            penalty_strength (float):
+                Weight of the linear-dependence penalty. Default is 0.003.
+            max_cycle (int):
+                Number of MCAO passes at each lattice scale. Default is 5.
+            lattice_scaling_step_size (float):
+                Decrement between successive lattice scales. Default is 0.03.
+            lattice_scaling_target_penalty (float):
+                Penalty used to determine the initial lattice scale. Default is 0.1.
+            verbose_optimizer (int or None):
+                Verbosity of stage optimizers. Default is None, which derives it from
+                this object's verbosity.
+            basis_to_save (str or None):
+                Path for writing the current basis after each scale. Default is None.
+            chkfile (str or None):
+                Checkpoint path. Default is None, which disables checkpoint output.
+    '''
 
     def __init__(self, spec, stages, lindep_penalty_func):
         self.spec = spec
@@ -32,6 +60,7 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         self.set_stages(stages)
 
     def dump_flags(self):
+        ''' Log MCAO settings. '''
         self.log_info('\n')
         self.log_info('******** %s ********' % (self.__class__.__name__))
         self.log_info('penalty_strength= %.15g' % self.penalty_strength)
@@ -44,6 +73,7 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         self.log_info('')
 
     def initialize(self):
+        ''' Evaluate initial stage costs and linear-dependence metrics. '''
         spec = self.spec.copy()
         self.cost = self.cost_func(spec)
         self.penalty, self.cond = self.lindep_penalty_func(spec)
@@ -51,23 +81,62 @@ class MaterialConstraintAtomicOptimization(StreamObject):
     @staticmethod
     def init_lindep_penalty_func(atm, cell, kappa0=1e8, natm_min=300, eigval_min=1e-8, sigmoid_p=2,
                                  verbose=None):
+        ''' Construct a BasisSpec-based linear-dependence penalty function.
+
+            Args:
+                atm (str):
+                    Atomic symbol whose basis is optimized.
+                cell (pyscf.pbc.gto.Cell):
+                    Reference periodic cell.
+                kappa0 (float):
+                    Target overlap condition number. Default is `1e8`.
+                natm_min (int):
+                    Minimum effective atom count used to build k-point meshes. Default
+                    is 300.
+                eigval_min (float):
+                    Smooth lower bound for overlap eigenvalues. Default is `1e-8`.
+                sigmoid_p (float):
+                    Exponent controlling penalty sharpness. Default is 2.
+                verbose (int):
+                    Logging verbosity. Default is None.
+
+            Return:
+                penalty_func (callable):
+                    Function accepting `(spec, scale)` and returning penalty and
+                    condition number.
+        '''
         get_lindep_penalty = init_lindep_penalty_func(atm, cell, kappa0, natm_min, eigval_min,
                                                       sigmoid_p, verbose)
 
         def lindep_penalty_func(spec, scale=1.):
+            ''' Evaluate linear-dependence metrics for a BasisSpec and scale. '''
             return get_lindep_penalty(spec.get_pyscf_basis(), scale)
 
         return lindep_penalty_func
 
     @property
     def stages(self):
+        ''' Return MCAO stage configurations.
+
+            Return:
+                stages (list of dict):
+                    Copied and formalized stage configurations.
+        '''
         return self._stages
 
     @stages.setter
     def stages(self, value):
+        ''' Validate and set MCAO stage configurations. '''
         self.set_stages(value)
 
     def set_stages(self, stages):
+        ''' Validate, copy, and store MCAO stage configurations.
+
+            Args:
+                stages (list of dict):
+                    Stages requiring `prefix` and `cost_func`. Missing
+                    `penalty_rescale` and `active_l` default to 1 and None.
+        '''
         must_have_keys = ['prefix', 'cost_func']
         optional_keys = ['penalty_rescale', 'active_l']
         stage_default = {'penalty_rescale': 1., 'active_l': None}
@@ -87,7 +156,17 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         self._stages = stages
 
     def cost_func(self, spec, stages=None):
-        ''' Evaluate all cost_func's in stages.
+        ''' Evaluate all electronic-structure costs in selected stages.
+
+            Args:
+                spec (BasisSpec):
+                    Basis specification to evaluate.
+                stages (list of dict):
+                    Stage configurations. Default is None, which uses `self.stages`.
+
+            Return:
+                costs (list of tuple):
+                    `(prefix, cost)` pairs in stage order.
         '''
         if stages is None: stages = self.stages
 
@@ -96,6 +175,21 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         ]
 
     def format_result(self, cost=None, penalty=None, cond=None):
+        ''' Format costs and linear-dependence metrics for logging.
+
+            Args:
+                cost (list of tuple):
+                    Named costs. Default is None, which uses `self.cost`.
+                penalty (float):
+                    Linear-dependence penalty. Default is None, which uses
+                    `self.penalty`.
+                cond (float):
+                    Overlap condition number. Default is None, which uses `self.cond`.
+
+            Return:
+                result (str):
+                    Formatted metrics.
+        '''
         if cost is None: cost = self.cost
         if penalty is None: penalty = self.penalty
         if cond is None: cond = self.cond
@@ -104,6 +198,18 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         return '  '.join(sout)
 
     def get_lattice_scaling_schedule(self, spec, scale0=None):
+        ''' Construct a descending lattice-scaling schedule ending at one.
+
+            Args:
+                spec (BasisSpec):
+                    Basis used to determine the initial scale.
+                scale0 (float):
+                    Initial scale. Default is None, which solves for the target penalty.
+
+            Return:
+                scales (ndarray):
+                    Lattice scales ending at 1.
+        '''
         if scale0 is not None and not isinstance(scale0, float):
             raise TypeError('scale0 must be float.')
 
@@ -123,6 +229,22 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         return scales
 
     def kernel(self, **kwargs):
+        ''' Run MCAO over the lattice-scaling schedule.
+
+            Args:
+                kwargs (dict):
+                    Attribute overrides applied before execution.
+
+            Return:
+                cost (list of tuple):
+                    Final named electronic-structure costs.
+                penalty (float):
+                    Final linear-dependence penalty.
+                cond (float):
+                    Final overlap condition number.
+                spec (BasisSpec):
+                    Optimized basis specification.
+        '''
         self.set(**kwargs)
 
         self.dump_flags()
@@ -166,7 +288,34 @@ class MaterialConstraintAtomicOptimization(StreamObject):
 
     def kernel_mcao(self, spec, scale=1., stages=None, lindep_penalty_func=None,
                     penalty_strength=None, max_cycle=None, verbose_optimizer=None):
-        ''' Perform MCAO for an optionally scaled lattice.
+        ''' Perform MCAO at a fixed lattice scale.
+
+            Args:
+                spec (BasisSpec):
+                    Basis specification to optimize.
+                scale (float):
+                    Lattice scale. Default is 1.
+                stages (list of dict):
+                    Stage configurations. Default is None, which uses `self.stages`.
+                lindep_penalty_func (callable):
+                    Penalty function. Default is None, which uses the configured
+                    function.
+                penalty_strength (float):
+                    Penalty weight. Default is None, which uses `self.penalty_strength`.
+                max_cycle (int):
+                    Number of MCAO passes. Default is None, which uses `self.max_cycle`.
+                verbose_optimizer (int):
+                    Stage-optimizer verbosity. Default is None.
+
+            Return:
+                cost (list of tuple):
+                    Named electronic-structure costs.
+                penalty (float):
+                    Linear-dependence penalty.
+                cond (float):
+                    Overlap condition number.
+                spec (BasisSpec):
+                    Optimized basis specification.
         '''
         if stages is None: stages = self.stages
         if penalty_strength is None: penalty_strength = self.penalty_strength
@@ -178,6 +327,7 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         lindep_penalty_func_fixed_scale = lambda x: lindep_penalty_func(x, scale)
 
         def penalty_func(spec, full_output=False):
+            ''' Evaluate the fixed-scale penalty with optional condition number. '''
             penalty, cond = lindep_penalty_func_fixed_scale(spec)
             if full_output:
                 return penalty, cond
@@ -194,12 +344,14 @@ class MaterialConstraintAtomicOptimization(StreamObject):
                 verbose = stage.get('verbose', verbose_optimizer)
 
                 def cost_func_with_penalty(spec):
+                    ''' Return one stage's cost plus its scaled penalty. '''
                     cost = cost_func(spec)
                     penalty = penalty_func(spec)
                     objective = cost + penalty * penalty_strength * penalty_rescale
                     return objective
 
                 def format_cost(s):
+                    ''' Format one optimizer's objective components for logging. '''
                     energy = cost_func(s.spec)
                     penalty, cond = penalty_func(s.spec, True)
                     return 'cost= %.10f  e= %.10f  penalty= %.3e  cond= %.3e' % (
@@ -227,6 +379,7 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         return cost, penalty, cond, spec
 
     def print_init(self):
+        ''' Log the initial basis and metrics. '''
         self.log_note('')
         self.log_note('Init basis:')
         if self.verbose >= 3:
@@ -234,9 +387,11 @@ class MaterialConstraintAtomicOptimization(StreamObject):
         self.log_note('Init %s' % (self.format_result()), space=True)
 
     def print_step(self):
+        ''' Placeholder hook for MCAO step logging. '''
         pass
 
     def print_final(self):
+        ''' Log the final basis and metrics. '''
         self.log_note('Final %s' % (self.format_result()), space=True)
         self.log_note('Final basis:')
         if self.verbose >= 3:
@@ -249,7 +404,22 @@ MCAO = MaterialConstraintAtomicOptimization
 
 
 def get_uniq_kpts(cell, natm_min=300, verbose=None):
-    ''' Determine the unique set of k-points with degeneracies.
+    ''' Determine a union of unique k-points and their degeneracies.
+
+        Args:
+            cell (pyscf.pbc.gto.Cell):
+                Reference periodic cell.
+            natm_min (int):
+                Minimum effective atom count controlling the largest k mesh. Default
+                is 300.
+            verbose (int):
+                Logging verbosity. Default is None.
+
+        Return:
+            scaled_kpts (ndarray):
+                Unique scaled k-points.
+            degeneracies (ndarray):
+                Number of occurrences of each k-point across sampled meshes.
     '''
     # TODO: better handle of noncubic crystals
     from pyscf.pbc.lib.kpts_helper import unique
@@ -290,9 +460,28 @@ def get_uniq_kpts(cell, natm_min=300, verbose=None):
 
 def init_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoid_p=2,
                              verbose=None):
-    ''' Return a function that calculate the linear dependency penalty and cond number.
+    ''' Construct a periodic overlap linear-dependence penalty function.
 
-            get_lindep_penalty(basis, scale=1.) -> penalty, cond
+        Args:
+            atm (str):
+                Atomic symbol whose basis is replaced.
+            cell (pyscf.pbc.gto.Cell):
+                Reference periodic cell.
+            kappa0 (float):
+                Target overlap condition number.
+            natm_min (int):
+                Minimum effective atom count controlling k-point meshes. Default is 300.
+            ev_min (float):
+                Smooth lower bound for overlap eigenvalues. Default is `1e-8`.
+            sigmoid_p (float):
+                Exponent controlling penalty sharpness. Default is 2.
+            verbose (int):
+                Logging verbosity. Default is None.
+
+        Return:
+            get_lindep_penalty (callable):
+                Function accepting `(basis, scale)` and returning the penalty and
+                maximum overlap condition number.
     '''
     lattice = Lattice.init_from_pyscf_cell(cell)
     if verbose is not None: lattice.verbose = verbose
@@ -307,6 +496,7 @@ def init_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmo
     basis_full = dict(cell._basis)
 
     def get_lindep_penalty(basis, scale):
+        ''' Evaluate periodic overlap penalty and condition number. '''
         basis_full[atm] = basis
         cell = lattice.get_pyscf_cell(basis=basis_full, scale=scale,
                                       cell_settings={'precision':1e-12})
@@ -332,6 +522,24 @@ def init_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmo
 
 
 def solve_scale_for_penalty(spec, get_lindep_penalty, target_penalty, xtol=0.01, b=2.):
+    ''' Solve for a lattice scale producing a target penalty.
+
+        Args:
+            spec (BasisSpec):
+                Basis specification passed to the penalty function.
+            get_lindep_penalty (callable):
+                Function returning `(penalty, condition_number)` for `(spec, scale)`.
+            target_penalty (float):
+                Desired penalty.
+            xtol (float):
+                Scale tolerance for bisection. Default is 0.01.
+            b (float):
+                Initial upper bracket. Default is 2.
+
+        Return:
+            scale (float):
+                Lattice scale, bounded below by 1.
+    '''
     penalty = get_lindep_penalty(spec, 1.)[0]
     if penalty < target_penalty:
         return 1.
@@ -359,10 +567,36 @@ def solve_scale_for_penalty(spec, get_lindep_penalty, target_penalty, xtol=0.01,
 
 
 def safe_zero(x, lower_bound):
+    ''' Smoothly bound the magnitude of a value away from zero.
+
+        Args:
+            x (array_like):
+                Input values.
+            lower_bound (float):
+                Positive smoothing bound.
+
+        Return:
+            value (scalar or ndarray):
+                `sqrt(x**2 + lower_bound**2)`.
+    '''
     return (x**2 + lower_bound**2)**0.5
 
 
 def sigmoid(x, p, lower_bound=1e-10):
+    ''' Evaluate the decreasing penalty sigmoid `1 / (1 + x**p)`.
+
+        Args:
+            x (array_like):
+                Input values.
+            p (float):
+                Sigmoid exponent.
+            lower_bound (float):
+                Smooth lower magnitude bound. Default is `1e-10`.
+
+        Return:
+            value (scalar or ndarray):
+                Sigmoid values.
+    '''
     x = safe_zero(x, lower_bound)
     return 1./(1. + np.power(x, p))
 

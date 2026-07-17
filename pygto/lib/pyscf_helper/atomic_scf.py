@@ -2,6 +2,25 @@ import numpy as np
 
 
 def _prepare_atomic_config(mf, config):
+    ''' Validate an atomic SCF configuration and collect angular-momentum indices.
+
+        Args:
+            mf (pyscf.scf.hf.SCF):
+                PySCF atomic SCF or Kohn-Sham object.
+            config (array_like):
+                Electron counts `[ns, np, nd, nf]` for restricted methods or an
+                `(alpha, beta)` pair of such arrays for open-shell methods.
+
+        Return:
+            method (str):
+                Occupation type: "rhf", "rohf", or "uhf".
+            config_alpha/config_beta (ndarray):
+                Spin-resolved electron counts by angular momentum.
+            ao_l (ndarray):
+                Angular momentum assigned to each AO.
+            ao_idx (dict):
+                AO indices grouped by angular momentum.
+    '''
     import numbers
 
     from pyscf import dft, scf
@@ -24,6 +43,7 @@ def _prepare_atomic_config(mf, config):
         raise TypeError('Unsupported SCF object %s.' % mf.__class__.__name__)
 
     def format_config(config, name):
+        ''' Validate one spin-resolved `[ns, np, nd, nf]` configuration. '''
         if len(config) != 4:
             raise ValueError('%s must contain [ns, np, nd, nf].' % name)
         if not all(isinstance(n, numbers.Integral) and not isinstance(n, bool)
@@ -76,11 +96,27 @@ def _prepare_atomic_config(mf, config):
 
 
 def _set_atomic_occ_(mf, method, config_alpha, config_beta, ao_idx, s=None):
+    ''' Replace an SCF object's occupation function with l-resolved occupations.
+
+        Args:
+            mf (pyscf.scf.hf.SCF):
+                PySCF SCF or Kohn-Sham object to modify.
+            method (str):
+                Occupation type: "rhf", "rohf", or "uhf".
+            config_alpha/config_beta (array_like):
+                Spin-resolved electron counts by angular momentum.
+            ao_idx (dict):
+                AO indices grouped by angular momentum.
+            s (array_like):
+                AO overlap matrix used for dominant-l assignment. Default is None,
+                which uses Euclidean coefficient norms.
+    '''
     from types import MethodType
 
     l_values = np.asarray(list(ao_idx))
 
     def get_mo_l(mo_coeff):
+        ''' Assign each molecular orbital to its dominant angular momentum. '''
         if s is None:
             weights = np.asarray([
                 np.linalg.norm(mo_coeff[ao_idx[l]], axis=0) for l in l_values
@@ -101,6 +137,7 @@ def _set_atomic_occ_(mf, method, config_alpha, config_beta, ao_idx, s=None):
         return l_values[imax]
 
     def occupy(mo_energy, mo_coeff, occupations):
+        ''' Occupy the lowest-energy orbitals assigned to each angular momentum. '''
         mo_occ = np.zeros_like(mo_energy)
         mo_l = get_mo_l(mo_coeff)
         for l, nocc in enumerate(occupations):
@@ -113,6 +150,7 @@ def _set_atomic_occ_(mf, method, config_alpha, config_beta, ao_idx, s=None):
 
     if method == 'rhf':
         def get_occ_(mf, mo_energy=None, mo_coeff=None):
+            ''' Return restricted occupations satisfying the requested configuration. '''
             if mo_energy is None:
                 mo_energy = mf.mo_energy
             if mo_coeff is None:
@@ -120,6 +158,7 @@ def _set_atomic_occ_(mf, method, config_alpha, config_beta, ao_idx, s=None):
             return 2 * occupy(mo_energy, mo_coeff, config_alpha)
     elif method == 'uhf':
         def get_occ_(mf, mo_energy=None, mo_coeff=None):
+            ''' Return unrestricted occupations satisfying the requested configuration. '''
             if mo_energy is None:
                 mo_energy = mf.mo_energy
             if mo_coeff is None:
@@ -130,6 +169,7 @@ def _set_atomic_occ_(mf, method, config_alpha, config_beta, ao_idx, s=None):
             ])
     else:
         def get_occ_(mf, mo_energy=None, mo_coeff=None):
+            ''' Return open-shell occupations satisfying the requested configuration. '''
             if mo_energy is None:
                 mo_energy = mf.mo_energy
             if mo_coeff is None:
@@ -143,19 +183,23 @@ def _set_atomic_occ_(mf, method, config_alpha, config_beta, ao_idx, s=None):
 
 
 def atomic_scf_with_pure_l_config_(mf, config):
-    '''Modify an atomic SCF object to preserve a pure-l configuration.
+    ''' Modify an atomic SCF object to preserve a pure-l configuration.
 
-    ``config`` gives the numbers of explicitly treated s, p, d, and f
-    electrons. For RHF/RKS, it is ``[ns, np, nd, nf]``. For unrestricted
-    and restricted open-shell methods, it is ``(config_alpha, config_beta)``.
+        Args:
+            mf (pyscf.scf.hf.SCF):
+                PySCF atomic SCF or Kohn-Sham object to modify.
+            config (array_like):
+                Electron counts `[ns, np, nd, nf]` for RHF/RKS or an `(alpha, beta)`
+                pair of such arrays for unrestricted and restricted open-shell methods.
 
-    The Fock equation is solved independently in each angular momentum block,
+        Return:
+            mf (pyscf.scf.hf.SCF):
+                Modified SCF object.
 
-        F_l C_l = S_l C_l e_l,
-
-    without averaging over magnetic components. The resulting orbitals are
-    sorted globally by energy, then occupied from low to high within each l
-    channel. The SCF gradient is projected onto the same block-diagonal space.
+        Note:
+            The Fock equation is solved independently in each angular-momentum block.
+            Orbitals are sorted globally by energy and occupied within each l channel;
+            the SCF gradient is projected onto the same block-diagonal space.
     '''
     import inspect
     from types import MethodType
@@ -178,6 +222,7 @@ def atomic_scf_with_pure_l_config_(mf, config):
     eigh0_args = inspect.signature(eigh0).parameters
 
     def _eigh_(mf, f, s, overwrite=False, x=None):
+        ''' Solve generalized eigenproblems independently in each l block. '''
         mo_energy = []
         mo_coeff = []
         for l in l_values:
@@ -202,7 +247,9 @@ def atomic_scf_with_pure_l_config_(mf, config):
         return mo_energy[order], mo_coeff[:,order]
 
     def project_fock(fock):
+        ''' Project a Fock-like array and its array tags onto same-l blocks. '''
         def project_array(a):
+            ''' Zero cross-angular-momentum matrix blocks when dimensions match. '''
             a = np.asarray(a)
             if a.ndim >= 2 and a.shape[-2:] == same_l.shape:
                 return a * same_l
@@ -219,9 +266,11 @@ def atomic_scf_with_pure_l_config_(mf, config):
         return projected
 
     def get_veff_(mf, *args, **kwargs):
+        ''' Return the effective potential projected onto same-l blocks. '''
         return project_fock(get_veff0(*args, **kwargs))
 
     def get_grad_(mf, mo_coeff, mo_occ, fock=None):
+        ''' Return the SCF gradient using a same-l-projected Fock matrix. '''
         if fock is None:
             dm = mf.make_rdm1(mo_coeff, mo_occ)
             fock = mf.get_fock(dm=dm)
@@ -235,18 +284,23 @@ def atomic_scf_with_pure_l_config_(mf, config):
 
 
 def atomic_scf_with_dominant_l_config_(mf, config):
-    '''Modify an atomic SCF object to preserve a dominant-l configuration.
+    ''' Modify an atomic SCF object to preserve a dominant-l configuration.
 
-    ``config`` follows the same convention as in
-    :func:`atomic_scf_with_pure_l_config_`.
+        Args:
+            mf (pyscf.scf.hf.SCF):
+                PySCF atomic SCF or Kohn-Sham object to modify.
+            config (array_like):
+                Electron counts using the convention of
+                `atomic_scf_with_pure_l_config_`.
 
-    The Fock matrix is not modified. Each generally mixed MO is assigned to
-    the angular momentum channel with the largest overlap-weighted population,
+        Return:
+            mf (pyscf.scf.hf.SCF):
+                Modified SCF object.
 
-        w_l = C_l^dagger S_l C_l,
-
-    and the lowest-energy MOs assigned to each channel are occupied according
-    to ``config``.
+        Note:
+            The Fock matrix is unchanged. Each generally mixed orbital is assigned to
+            the angular momentum with its largest overlap-weighted population, and the
+            lowest-energy assigned orbitals are occupied according to `config`.
     '''
     method, config_alpha, config_beta, _, ao_idx = \
         _prepare_atomic_config(mf, config)

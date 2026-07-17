@@ -4,6 +4,31 @@ from .atomic_scf import atomic_scf_with_pure_l_config_
 
 def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, keep_l=None,
                   config=None):
+    ''' Construct an atomic electronic-structure cost function.
+
+        Args:
+            atm (str):
+                Atomic symbol.
+            HF (class or callable):
+                Callable constructing a PySCF SCF object from a molecule.
+            mol_settings (dict):
+                Molecule attributes applied before building. Default is None.
+            CORR (class or callable):
+                Callable constructing a correlated method from the SCF object. Default
+                is None, which uses the SCF total energy.
+            corr_settings (dict):
+                Correlated-method attributes applied before execution. Default is None.
+            keep_l (int or list of int):
+                Basis angular momenta to retain. Default is None, which keeps all.
+            config (array_like):
+                Pure-angular-momentum electron configuration. Default is None.
+
+        Return:
+            cost_func (callable):
+                Function accepting a BasisSpec and returning the SCF total energy or
+                correlated energy contribution. With `full_output=True`, it also
+                returns the completed PySCF method object.
+    '''
 
     import inspect
 
@@ -15,6 +40,7 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
             raise TypeError('CORR must be a class or callable.')
 
     def get_mol(basis):
+        ''' Build a PySCF molecule for basis data. '''
         from pyscf import gto
         mol = gto.Mole()
         mol.atom = atm
@@ -26,6 +52,7 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
         return mol
 
     def cost_func(spec, full_output=False):
+        ''' Evaluate the electronic-structure cost for a BasisSpec. '''
         basis = spec.get_pyscf_basis(keep_l=keep_l)
         mol = get_mol(basis)
         mf = HF(mol)
@@ -54,7 +81,7 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
 
 def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
                          corr=True, corr_settings=None, gamma_vjk=0.1):
-    ''' Get the cost function for auxiliary basis optimization.
+    ''' Construct a cost function for auxiliary-basis optimization.
 
         The returned `:func:cost_func` has the following signature:
             cost_func(spec) -> error
@@ -87,12 +114,20 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
                 HF(mol) -> mf
             mol_settings (dict):
                 Settings for `mol` through `mol.set(**mol_settings)`. Default is None.
+            config (array_like):
+                Pure-angular-momentum electron configuration. Default is None.
             corr (bool):
-                Whether to include MP2 correlation in the error vector.
+                Whether to include MP2 correlation in the error vector. Default is
+                True.
             corr_settings (dict):
                 Settings applied to MP2 object through `set`. Default is None.
             gamma_vjk (float):
                 Scaling factor for the J/K matrix error. Default is 0.1.
+
+        Return:
+            cost_func (callable):
+                Function accepting an auxiliary BasisSpec and returning its maximum
+                scaled error. With `full_output=True`, it also returns the error vector.
     '''
 
     import inspect
@@ -102,6 +137,7 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
         raise TypeError('HF must be a class or callable.')
 
     def get_mol(basis):
+        ''' Build a PySCF molecule for orbital basis data. '''
         from pyscf import gto
         mol = gto.Mole()
         mol.atom = atm
@@ -134,6 +170,7 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
         t2_ref = mc_ref.t2
 
     def cost_func(spec, full_output=False):
+        ''' Evaluate density-fitting errors for an auxiliary BasisSpec. '''
         auxbasis = spec.get_pyscf_basis()
         mf = HF(mol).density_fit(auxbasis)
         if config is not None:

@@ -171,11 +171,31 @@ CONFIGURATION = [
 
 
 def get_atom_symbol(Z):
+    ''' Return the atomic symbol for a nuclear charge.
+
+        Args:
+            Z (int):
+                Nuclear charge.
+
+        Return:
+            symbol (str):
+                Atomic symbol.
+    '''
     if Z <= 0 or Z > len(ATOM_SYMBOLS):
         raise ValueError('Z must be in [0, %d]' % (len(ATOM_SYMBOLS)))
     return ATOM_SYMBOLS[Z]
 
 def get_Z(atm):
+    ''' Return the nuclear charge for an atomic symbol.
+
+        Args:
+            atm (str):
+                Atomic symbol.
+
+        Return:
+            Z (int):
+                Nuclear charge.
+    '''
     if atm in ATOM_SYMBOLS:
         return ATOM_SYMBOLS.index(atm)
     else:
@@ -183,18 +203,48 @@ def get_Z(atm):
 get_charge = get_Z
 
 def get_spin(atm):
+    ''' Return the default atomic spin for an element.
+
+        Args:
+            atm (str):
+                Atomic symbol.
+
+        Return:
+            spin (int):
+                Number of unpaired electrons in the default configuration.
+    '''
     Z = get_Z(atm)
     if Z > 36:
         raise NotImplementedError('Default spin is not available for Z > 36.')
     return SPIN[Z]
 
 def get_neval(atm):
+    ''' Return the default number of electrons for valence correlation.
+
+        Args:
+            atm (str):
+                Atomic symbol.
+
+        Return:
+            neval (int):
+                Default number of correlated valence electrons.
+    '''
     Z = get_Z(atm)
     if Z > 36:
         raise NotImplementedError('Default neval is not available for Z > 36.')
     return NEVAL[Z]
 
 def get_all_configs(atm):
+    ''' Return supported angular-momentum electron configurations for an element.
+
+        Args:
+            atm (str):
+                Atomic symbol.
+
+        Return:
+            configs (list of list of int):
+                Electron counts by angular momentum, ordered by total electron count.
+    '''
     atm_cores = [
         'He',               # 1s
         'Be', 'Ne',         # 2s 2p
@@ -218,6 +268,19 @@ def get_all_configs(atm):
     return configs
 
 def get_config(atm, nelectron=None):
+    ''' Return an angular-momentum electron configuration.
+
+        Args:
+            atm (str):
+                Atomic symbol.
+            nelectron (int):
+                Requested electron count. Default is None, which returns the full
+                atomic configuration.
+
+        Return:
+            config (list of int):
+                Electron counts for successive angular momenta.
+    '''
     config_alle = CONFIGURATION[get_Z(atm)].copy()
     if nelectron is None:
         return config_alle

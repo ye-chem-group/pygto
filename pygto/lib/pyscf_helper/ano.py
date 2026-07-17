@@ -3,7 +3,28 @@ from .atomic_scf import atomic_scf_with_pure_l_config_
 
 
 def get_ano_input_func(atm, HF, mol_settings=None, config=None, CORR=None, corr_settings=None):
-    ''' Calculates spin-summed density matrix and AO overlap matrix.
+    ''' Construct a function that evaluates inputs for ANO contraction.
+
+        Args:
+            atm (str):
+                Atomic symbol.
+            HF (class or callable):
+                Callable constructing a PySCF SCF object from a molecule.
+            mol_settings (dict):
+                Molecule attributes applied before building. Default is None.
+            config (array_like):
+                Pure-angular-momentum electron configuration. Default is None, which
+                uses the SCF method's standard occupations.
+            CORR (class or callable):
+                Callable constructing a correlated method from the SCF object. Default
+                is None, which uses the SCF density matrix.
+            corr_settings (dict):
+                Correlated-method attributes applied before execution. Default is None.
+
+        Return:
+            ano_input_func (callable):
+                Function accepting a BasisSpec and returning the spin-summed AO
+                density matrix and AO overlap matrix.
 
         Note:
             The order of the AO basis functions in which the two matrices are calculated
@@ -21,6 +42,7 @@ def get_ano_input_func(atm, HF, mol_settings=None, config=None, CORR=None, corr_
             raise TypeError('CORR must be a class or callable.')
 
     def get_mol(basis):
+        ''' Build a PySCF molecule for basis data. '''
         from pyscf import gto
         mol = gto.Mole()
         mol.atom = atm
@@ -32,6 +54,7 @@ def get_ano_input_func(atm, HF, mol_settings=None, config=None, CORR=None, corr_
         return mol
 
     def ano_input_func(spec):
+        ''' Evaluate the density and overlap matrices for a BasisSpec. '''
         basis = spec.get_pyscf_basis()
         mol = get_mol(basis)
         mf = HF(mol)
