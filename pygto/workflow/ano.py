@@ -448,7 +448,6 @@ def sort_ano(occ, coeff, tol=1e-2):
 
 if __name__ == '__main__':
     from pyscf import gto, scf, cc
-    from pygto.lib import pyscf_helper
     atm = 'C'
     spin = 2
     config = [
@@ -458,10 +457,10 @@ if __name__ == '__main__':
     fbas = 'cc-pvdz'
     val_l = [0,1]
 
-    basis = pyscf_helper.load_basis(fbas, atm, keep_l=val_l)
+    basis = lib.pyscf_helper.load_basis(fbas, atm, keep_l=val_l)
     cgto = ContractedBasis.init_from_pyscf_basis(basis, atm=atm)
     spec = BasisSpec.init_from_pyscf_basis(basis, atm=atm)
-    ano_input_func = pyscf_helper.get_ano_input_func(
+    ano_input_func = lib.pyscf_helper.get_ano_input_func(
         atm, scf.ROHF, mol_settings={'spin':spin}, config=config,
         CORR=cc.CCSD, corr_settings={'frozen':frozen}
     )

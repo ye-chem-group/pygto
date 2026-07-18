@@ -3,7 +3,7 @@ import tempfile
 import textwrap
 import unittest
 
-from pygto.lib import load_basis_nwchem
+from pygto import lib
 
 
 class LoadBasisNWChemTest(unittest.TestCase):
@@ -19,7 +19,7 @@ class LoadBasisNWChemTest(unittest.TestCase):
                  0.5        1.00
         '''
 
-        basis = load_basis_nwchem(basis_text, 'C')
+        basis = lib.load_basis_nwchem(basis_text, 'C')
 
         self.assertEqual(basis, [
             [0, [10.0, 0.25]],
@@ -45,7 +45,7 @@ class LoadBasisNWChemTest(unittest.TestCase):
             path = os.path.join(tmpdir, 'basis.dat')
             with open(path, 'w') as f:
                 f.write(basis_text)
-            basis = load_basis_nwchem(path, 'He')
+            basis = lib.load_basis_nwchem(path, 'He')
 
         self.assertEqual(basis, [
             [0, [2.0, 1.0]],

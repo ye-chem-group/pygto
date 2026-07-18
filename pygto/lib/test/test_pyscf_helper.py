@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 
-from pygto.lib import pyscf_helper
+from pygto import lib
 from pygto.basis import BasisSpec
 from pyscf import gto, scf, cc
 
@@ -37,13 +37,13 @@ class AtomicSCFTest(unittest.TestCase):
 
         # pure-l occupation
         mf_purel = scf.ROHF(mol)
-        pyscf_helper.atomic_scf_with_pure_l_config_(mf_purel, config)
+        lib.pyscf_helper.atomic_scf_with_pure_l_config_(mf_purel, config)
         mf_purel.kernel()
         self.assertAlmostEqual(mf_uncon.e_tot, mf_purel.e_tot, 6)
 
         # dominant-l occupation
         mf_doml = scf.ROHF(mol)
-        pyscf_helper.atomic_scf_with_dominant_l_config_(mf_doml, config)
+        lib.pyscf_helper.atomic_scf_with_dominant_l_config_(mf_doml, config)
         mf_doml.kernel()
         self.assertAlmostEqual(mf_uncon.e_tot, mf_doml.e_tot, 6)
 
@@ -58,13 +58,13 @@ class AtomicSCFTest(unittest.TestCase):
 
         # pure-l occupation
         mf_purel = scf.UHF(mol)
-        pyscf_helper.atomic_scf_with_pure_l_config_(mf_purel, config)
+        lib.pyscf_helper.atomic_scf_with_pure_l_config_(mf_purel, config)
         mf_purel.kernel()
         self.assertAlmostEqual(mf_purel.e_tot, -1638.94973350937, 6)
 
         # dominant-l occupation
         mf_doml = scf.UHF(mol)
-        pyscf_helper.atomic_scf_with_dominant_l_config_(mf_doml, config)
+        lib.pyscf_helper.atomic_scf_with_dominant_l_config_(mf_doml, config)
         mf_doml.kernel()
         self.assertAlmostEqual(mf_doml.e_tot, -1638.95368170136, 6)
 
@@ -78,7 +78,7 @@ class CostFuncTest(unittest.TestCase):
         val_l = [0,1]
 
         # from cost_func
-        cost_func = pyscf_helper.get_cost_func(
+        cost_func = lib.pyscf_helper.get_cost_func(
             atm, scf.ROHF, mol_settings={'spin': spin}, keep_l=val_l)
         spec = BasisSpec.init_from_pyscf_basis(
             gto.basis.load(basis, atm), atm=atm,
@@ -99,7 +99,7 @@ class CostFuncTest(unittest.TestCase):
         frozen = 1
 
         # from cost_func
-        cost_func = pyscf_helper.get_cost_func(
+        cost_func = lib.pyscf_helper.get_cost_func(
             atm, scf.UHF, mol_settings={'spin': spin},
             CORR=cc.UCCSD, corr_settings={'frozen': frozen},
         )
@@ -131,11 +131,11 @@ class CostFuncTest(unittest.TestCase):
         # customized SCF
         def SCF(mol):
             mf = scf.ROHF(mol)
-            pyscf_helper.atomic_scf_with_pure_l_config_(mf, config)
+            lib.pyscf_helper.atomic_scf_with_pure_l_config_(mf, config)
             return mf
 
         # from cost_func
-        cost_func = pyscf_helper.get_cost_func(
+        cost_func = lib.pyscf_helper.get_cost_func(
             atm, SCF, mol_settings={'spin': spin}, keep_l=val_l)
         spec = BasisSpec.init_from_pyscf_basis(
             gto.basis.load(basis, atm), atm=atm,
@@ -145,7 +145,7 @@ class CostFuncTest(unittest.TestCase):
         # from pyscf
         mol = gto.M(atom=atm, basis=spec.get_pyscf_basis(keep_l=val_l), spin=spin).set(verbose=0)
         mf = scf.ROHF(mol)
-        pyscf_helper.atomic_scf_with_pure_l_config_(mf, config)
+        lib.pyscf_helper.atomic_scf_with_pure_l_config_(mf, config)
         mf.kernel()
 
         self.assertAlmostEqual(mf.e_tot, e_tot, 6)

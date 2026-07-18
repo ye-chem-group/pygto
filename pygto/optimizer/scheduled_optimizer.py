@@ -1,8 +1,8 @@
 import copy
 import numpy as np
 
+from pygto import lib
 from pygto.optimizer import Optimizer, NelderMead, BFGS
-from pygto.lib import StreamObject
 
 
 PRESET_STAGES = {
@@ -52,7 +52,7 @@ PRESET_STAGES = {
     ]
 }
 
-class ScheduledOptimizer(StreamObject):
+class ScheduledOptimizer(lib.StreamObject):
     ''' Run a sequence of optimizers and basis-setting stages.
 
         Args:

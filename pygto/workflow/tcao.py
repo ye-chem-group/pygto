@@ -1,10 +1,10 @@
 import numpy as np
 
-from pygto.lib import StreamObject, to_int_list
+from pygto import lib
 from pygto.optimizer import ScheduledOptimizer, Optimizer
 
 
-class TargetCostAtomicOptimization(StreamObject):
+class TargetCostAtomicOptimization(lib.StreamObject):
     ''' Reduce a basis while keeping its cost increase below a target tolerance.
 
         Starting from a sufficiently large basis, this workflow progressively removes
@@ -109,7 +109,7 @@ class TargetCostAtomicOptimization(StreamObject):
         if select_channel is None:
             select_channel = list(range(spec.nchannel))
         else:
-            select_channel = to_int_list(select_channel)
+            select_channel = lib.to_int_list(select_channel)
 
         cost_func = self.cost_func
         cost = cost_func(spec)
@@ -202,7 +202,7 @@ class TargetCostAtomicOptimization(StreamObject):
         if select_channel is None:
             select_channel = list(range(spec.nchannel))
         else:
-            select_channel = to_int_list(select_channel)
+            select_channel = lib.to_int_list(select_channel)
 
         cost = self.cost_func(spec)
         if cost_init is None:
@@ -467,7 +467,7 @@ class ChannelReduction(TCAO):
         if channel_idxs is None:
             channel_idxs = range(self.spec.nchannel)
         else:
-            channel_idxs = to_int_list(channel_idxs)
+            channel_idxs = lib.to_int_list(channel_idxs)
 
         if self.chkfile is not None:
             self.spec.dump_chkfile(self.chkfile, prefix='spec')
@@ -587,8 +587,6 @@ class ChannelReduction(TCAO):
                 directory are replaced; unrelated files are retained.
         '''
         import os
-        from pygto.lib import mkdir
-
         if outdir is None: outdir = self.outdir
         if outdir is None: outdir = 'summary'
         subdir = f'{outdir}/channel_{channel_idx}'
@@ -599,7 +597,7 @@ class ChannelReduction(TCAO):
                     path = os.path.join(subdir, fname)
                     if os.path.isfile(path) or os.path.islink(path):
                         os.remove(path)
-        mkdir(subdir, recursive=True)
+        lib.mkdir(subdir, recursive=True)
 
         # write summary to "summary.csv" and channel basis data
         fconv = f'{subdir}/summary.csv'
@@ -616,7 +614,6 @@ class ChannelReduction(TCAO):
 if __name__ == '__main__':
     from pygto.basis import BasisSpec
     from pygto.optimizer import ScheduledOptimizer
-    from pygto.lib.pyscf_helper import get_cost_func
     from pyscf import gto, scf
 
     atm = 'C'
@@ -626,7 +623,7 @@ if __name__ == '__main__':
     pseudo = 'gth-hf-rev'
     valence_l = [0,1]
 
-    cost_func = get_cost_func(
+    cost_func = lib.pyscf_helper.get_cost_func(
         atm, scf.RHF, mol_settings={'spin': spin, 'pseudo': pseudo},
         keep_l=valence_l,
     )

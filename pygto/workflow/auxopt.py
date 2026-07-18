@@ -1,6 +1,6 @@
 import numpy as np
 
-from pygto.lib import StreamObject
+from pygto import lib
 from pygto.optimizer import ScheduledOptimizer
 from pygto.workflow import TCAO
 
@@ -329,7 +329,6 @@ if __name__ == '__main__':
     from pyscf import gto, scf, df
     from pygto.basis import BasisSpec
     from pygto.optimizer import ScheduledOptimizer
-    from pygto.lib import pyscf_helper
 
     atm = 'C'
     spin = 2
@@ -341,7 +340,7 @@ if __name__ == '__main__':
     auxbasis = df.autoaux(mol)[atm]
     auxspec = BasisSpec.init_from_pyscf_basis(auxbasis, atm=atm, channel_type='etb')
 
-    cost_func = pyscf_helper.get_cost_func_auxopt(
+    cost_func = lib.pyscf_helper.get_cost_func_auxopt(
         atm, aobasis, scf.UHF, mol_settings={'spin':spin},
         corr_settings={'frozen':frozen},
     )

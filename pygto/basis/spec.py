@@ -4,12 +4,11 @@ import numpy as np
 
 from contextlib import contextmanager
 
+from pygto import lib
 from pygto.basis.channel import ETB, Full
-from pygto.lib import StreamObject, to_int_list, chkfile_helper
-from pygto.lib import load_basis_nwchem, dump_basis_nwchem, get_basis_str_nwchem, get_named_basis
 
 
-class BasisSpec(StreamObject):
+class BasisSpec(lib.StreamObject):
     ''' A collection of channels that defines an optimizable basis set.
 
         Each channel has a definite angular momentum (`channel.l`) and contains
@@ -50,7 +49,8 @@ class BasisSpec(StreamObject):
                     Basis input. A list or tuple is interpreted as PySCF-format basis
                     data. A string may be the path to an NWChem basis file, inline
                     NWChem basis data containing a `#BASIS SET` header, or a basis-set
-                    name recognized by Basis Set Exchange.
+                    name recognized PySCF (if installed) or Basis Set Exchange (if
+                    installed or have internet access).
                 atm (str):
                     Atomic symbol of the basis to load.
                 kwargs (dict):
@@ -68,17 +68,12 @@ class BasisSpec(StreamObject):
             return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
         elif isinstance(basis, str):
             import os
-            from pygto.lib import has_pyscf
             if os.path.isfile(basis):   # NWChem basis data file
-                basis = load_basis_nwchem(basis, atm)
+                return cls.init_from_nwchem_basis(basis, atm, **kwargs)
             elif '#B' in basis:         # NWChem basis data string
-                basis = load_basis_nwchem(basis, atm)
-            elif has_pyscf():           # Named basis; using PySCF loader
-                from pygto.lib import pyscf_helper
-                basis = pyscf_helper.load_basis(basis, atm)
-            else:                       # Named basis; using BasisSetExchange loader
-                basis = get_named_basis(basis, atm)
-            return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
+                return cls.init_from_nwchem_basis(basis, atm, **kwargs)
+            else:                       # Named basis
+                return cls.init_from_named_basis(basis, atm, **kwargs)
         else:
             raise TypeError('basis must be a str (NWChem basis data file/string or '
                             'named basis) or a list/tuple (PySCF-format basis data).')
@@ -89,7 +84,8 @@ class BasisSpec(StreamObject):
 
             Args:
                 name (str):
-                    Basis-set name recognized by Basis Set Exchange.
+                    Basis-set name recognized by PySCF (if available) or Basis
+                    Set Exchange (if available or has internet access).
                 atm (str):
                     Atomic symbol of the basis to load.
                 kwargs (dict):
@@ -99,7 +95,10 @@ class BasisSpec(StreamObject):
                 spec (BasisSpec):
                     BasisSpec object initialized from the named basis.
         '''
-        basis = get_named_basis(name, atm)
+        if lib.has_pyscf(): # Named basis; using PySCF loader
+            basis = lib.pyscf_helper.load_basis(name, atm)
+        else:               # Named basis; using BasisSetExchange loader
+            basis = lib.get_named_basis(name, atm)
         return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
 
     @classmethod
@@ -118,7 +117,7 @@ class BasisSpec(StreamObject):
                 spec (BasisSpec):
                     BasisSpec object initialized from the NWChem basis.
         '''
-        basis = load_basis_nwchem(basis_str_or_file, atm)
+        basis = lib.load_basis_nwchem(basis_str_or_file, atm)
         return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
 
     @classmethod
@@ -162,7 +161,7 @@ class BasisSpec(StreamObject):
 
         angular_momenta = sorted(list(set([int(b[0]) for b in basis])))
         if keep_l is not None:
-            keep_l = to_int_list(keep_l)
+            keep_l = lib.to_int_list(keep_l)
             angular_momenta = [l for l in angular_momenta if l in keep_l]
 
         channels = []
@@ -401,7 +400,7 @@ class BasisSpec(StreamObject):
             self._active_channel = None  # reset and activate all channels
             return
 
-        active_channel = to_int_list(active_channel)
+        active_channel = lib.to_int_list(active_channel)
 
         if len(active_channel) == 0:
             raise ValueError('Channel index must not be empty.')
@@ -423,7 +422,7 @@ class BasisSpec(StreamObject):
             self._active_channel = None  # reset and activate all channels
             return
 
-        active_l = to_int_list(active_l)
+        active_l = lib.to_int_list(active_l)
 
         if len(active_l) == 0:
             raise ValueError('Angular momenta must not be empty.')
@@ -506,7 +505,7 @@ class BasisSpec(StreamObject):
         if active_channel is None:
             active_channel = self._active_channel
         else:
-            active_channel = to_int_list(active_channel)
+            active_channel = lib.to_int_list(active_channel)
 
         if active_channel is None:
             mask = np.ones(self.nchannel, dtype=bool)
@@ -877,7 +876,7 @@ class BasisSpec(StreamObject):
         if keep_l is None:
             keep_l = self.angular_momenta
 
-        keep_l = to_int_list(keep_l)
+        keep_l = lib.to_int_list(keep_l)
 
         basis = []
         for c in self.channels:
@@ -905,7 +904,7 @@ class BasisSpec(StreamObject):
                     Basis data in NWChem format.
         '''
         if keep_l is None: keep_l = self.angular_momenta
-        return get_basis_str_nwchem(
+        return lib.get_basis_str_nwchem(
             self.get_pyscf_basis(sort=sort), atm, header, sort, keep_l
         )
 
@@ -929,7 +928,7 @@ class BasisSpec(StreamObject):
         '''
         if atm is None: atm = self.atm
         if keep_l is None: keep_l = self.angular_momenta
-        dump_basis_nwchem(
+        lib.dump_basis_nwchem(
             self.get_pyscf_basis(sort=sort), stdout, atm, header, sort, keep_l
         )
 
@@ -981,7 +980,7 @@ class BasisSpec(StreamObject):
             f.require_group(prefix)
 
         if self.atm is not None:
-            chkfile_helper.dump(chkfile, f'{prefix}/atm', self.atm)
+            lib.chkfile_helper.dump(chkfile, f'{prefix}/atm', self.atm)
         for i,c in enumerate(self.channels):
             c.dump_chkfile(chkfile, f'{prefix}/channel_{i}')
 
@@ -1019,7 +1018,7 @@ class BasisSpec(StreamObject):
 
         if prefix is None: prefix = 'spec'
         try:
-            atm = chkfile_helper.load(chkfile, f'{prefix}/atm')
+            atm = lib.chkfile_helper.load(chkfile, f'{prefix}/atm')
         except KeyError:
             atm = None
 
@@ -1032,7 +1031,7 @@ class BasisSpec(StreamObject):
         channels = []
         for channel_idx in channel_idxs:
             channel_prefix = f'{prefix}/channel_{channel_idx}'
-            saved_channel_type = chkfile_helper.load(chkfile, f'{channel_prefix}/type')
+            saved_channel_type = lib.chkfile_helper.load(chkfile, f'{channel_prefix}/type')
             try:
                 Channel = channel_types[saved_channel_type.lower()]
             except (AttributeError, KeyError):

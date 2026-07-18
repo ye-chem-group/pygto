@@ -36,6 +36,86 @@ class ContractedBasis(lib.StreamObject):
         return f'{self.__class__.__name__}({self.structure})'
 
     @classmethod
+    def init_from_basis(cls, basis, atm, **kwargs):
+        ''' Initialize a ContractedBasis object from common basis representations.
+
+            Args:
+                basis (str, list, or tuple):
+                    Basis input. A list or tuple is interpreted as PySCF-format basis
+                    data. A string may be the path to an NWChem basis file, inline
+                    NWChem basis data containing a `#BASIS SET` header, or a basis-set
+                    name recognized by PySCF (if installed) or Basis Set Exchange (if
+                    installed or have internet access).
+                atm (str):
+                    Atomic symbol of the basis to load.
+                kwargs (dict):
+                    Additional arguments passed to `init_from_pyscf_basis`.
+
+            Return:
+                cgto (ContractedBasis):
+                    ContractedBasis object initialized from `basis`.
+
+            Note:
+                String inputs are interpreted in the following order: an existing
+                file, inline NWChem data, and finally a named basis set.
+        '''
+        if isinstance(basis, (list, tuple)):    # PySCF-format basis data
+            return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
+        elif isinstance(basis, str):
+            import os
+            if os.path.isfile(basis):   # NWChem basis data file
+                return cls.init_from_nwchem_basis(basis, atm, **kwargs)
+            elif '#B' in basis:         # NWChem basis data string
+                return cls.init_from_nwchem_basis(basis, atm, **kwargs)
+            else:                       # Named basis
+                return cls.init_from_named_basis(basis, atm, **kwargs)
+        else:
+            raise TypeError('basis must be a str (NWChem basis data file/string or '
+                            'named basis) or a list/tuple (PySCF-format basis data).')
+
+    @classmethod
+    def init_from_nwchem_basis(cls, basis_str_or_file, atm, **kwargs):
+        ''' Initialize a ContractedBasis object from an NWChem-format basis.
+
+            Args:
+                basis_str_or_file (str):
+                    NWChem basis data or the path to an NWChem basis file.
+                atm (str):
+                    Atomic symbol of the basis to load.
+                kwargs (dict):
+                    Additional arguments passed to :func:`init_from_pyscf_basis`.
+
+            Return:
+                cgto (ContractedBasis):
+                    ContractedBasis object initialized from the NWChem basis.
+        '''
+        basis = lib.load_basis_nwchem(basis_str_or_file, atm)
+        return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
+
+    @classmethod
+    def init_from_named_basis(cls, name, atm, **kwargs):
+        ''' Initialize a ContractedBasis object from a named basis set.
+
+            Args:
+                name (str):
+                    Basis-set name recognized by PySCF (if available) or Basis
+                    Set Exchange (if available or has internet access).
+                atm (str):
+                    Atomic symbol of the basis to load.
+                kwargs (dict):
+                    Additional arguments passed to `init_from_pyscf_basis`.
+
+            Return:
+                cgto (ContractedBasis):
+                    ContractedBasis object initialized from the named basis.
+        '''
+        if lib.has_pyscf(): # Named basis; using PySCF loader
+            basis = lib.pyscf_helper.load_basis(name, atm)
+        else:               # Named basis; using BasisSetExchange loader
+            basis = lib.get_named_basis(name, atm)
+        return cls.init_from_pyscf_basis(basis, atm=atm, **kwargs)
+
+    @classmethod
     def init_from_pyscf_basis(cls, basis, atm=None, emin=None, emax=None, keep_l=None):
         ''' Initialize a ContractedBasis object from a PySCF-format basis.
 
@@ -650,10 +730,10 @@ if __name__ == '__main__':
     fbas = 'cc-pvdz'
     basis = gto.basis.load(fbas, atm)
 
-    spec = ContractedBasis.init_from_pyscf_basis(basis, atm=atm)
-    spec.dump_basis()
-    for i in range(spec.nchannel):
-        print(spec.channel_l(i), spec.channel_nprim(i), spec.channel_nctr(i))
-    print(spec.structure_primitive)
-    print(spec.structure_contracted)
-    print(spec.contraction_summary)
+    cgto = ContractedBasis.init_from_pyscf_basis(basis, atm=atm)
+    cgto.dump_basis()
+    for i in range(cgto.nchannel):
+        print(cgto.channel_l(i), cgto.channel_nprim(i), cgto.channel_nctr(i))
+    print(cgto.structure_primitive)
+    print(cgto.structure_contracted)
+    print(cgto.contraction_summary)

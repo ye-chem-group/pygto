@@ -4,8 +4,8 @@ import unittest
 import h5py
 import numpy as np
 
+from pygto import lib
 from pygto.basis import BasisSpec, ETB, Full
-from pygto.lib import chkfile_helper
 
 
 class ChkfileTest(unittest.TestCase):
@@ -18,8 +18,8 @@ class ChkfileTest(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_scalar_string(self):
-        chkfile_helper.dump(self.chkfile, 'atom', 'Cu')
-        atom = chkfile_helper.load(self.chkfile, 'atom')
+        lib.chkfile_helper.dump(self.chkfile, 'atom', 'Cu')
+        atom = lib.chkfile_helper.load(self.chkfile, 'atom')
 
         self.assertEqual(atom, 'Cu')
         self.assertIsInstance(atom, str)

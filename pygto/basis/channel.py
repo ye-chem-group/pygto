@@ -1,10 +1,7 @@
 import sys
 import numpy as np
 
-from pygto.lib import soft_clip, soft_log_clip, inverse_soft_clip, inverse_soft_log_clip, softplus
-from pygto.lib import filter_by_range, to_int_list
-from pygto.lib import StreamObject
-from pygto.lib import dump_basis_nwchem, get_basis_str_nwchem
+from pygto import lib
 
 
 REPEAT_THR = 1.01
@@ -16,7 +13,7 @@ BETA_MAX = 10
 BETA_K = 10.
 
 
-class Channel(StreamObject):
+class Channel(lib.StreamObject):
     ''' Base class for an optimizable uncontracted angular-momentum channel.
 
         Args:
@@ -262,7 +259,7 @@ class Channel(StreamObject):
                 basis (list):
                     Uncontracted basis data in PySCF format.
         '''
-        exponents = filter_by_range(self.exponents, emin, emax)
+        exponents = lib.filter_by_range(self.exponents, emin, emax)
         if sort: exponents = np.sort(exponents)[::-1]
         return [(int(self.l), (e, 1.)) for e in exponents]
 
@@ -388,7 +385,7 @@ class Channel(StreamObject):
                 channels (list of Channel):
                     Candidate channels with one exponent removed without rescaling.
         '''
-        exponents = np.sort(filter_by_range(self.exponents, emin, emax))
+        exponents = np.sort(lib.filter_by_range(self.exponents, emin, emax))
         return [
             self.replace_exponents(subexponents)
             for subexponents in [np.delete(exponents, i) for i in range(len(exponents))]
@@ -402,7 +399,7 @@ class Channel(StreamObject):
                     Exponents outside [emin, emax] are discarded. Default is None,
                     which does not impose the corresponding bound.
         '''
-        self.exponents = filter_by_range(self.exponents, emin, emax)
+        self.exponents = lib.filter_by_range(self.exponents, emin, emax)
 
     def filter_by_exponent_range(self, emin=None, emax=None):
         ''' Return a copy filtered by exponent range.
@@ -427,7 +424,7 @@ class Channel(StreamObject):
                 exponent_idx (int or list of int):
                     Exponent indices to retain.
         '''
-        index = to_int_list(exponent_idx)
+        index = lib.to_int_list(exponent_idx)
         if not set(index).issubset(set(range(self.nexponent))):
             raise IndexError('exponent_idx contains index out of range.')
         self.exponents = self.exponents[index]
@@ -481,7 +478,7 @@ class Channel(StreamObject):
         '''
         width = 1e-2
         violation = np.log(ratio_min) - np.log(ratio)
-        smooth_violation = width * softplus(violation / width)
+        smooth_violation = width * lib.softplus(violation / width)
         penalty = strength * sum(smooth_violation**2)
 
         return penalty
@@ -501,7 +498,7 @@ class Channel(StreamObject):
                 basis_str (str):
                     Channel data in NWChem format.
         '''
-        return get_basis_str_nwchem(
+        return lib.get_basis_str_nwchem(
             self.get_pyscf_basis(sort=sort), atm, header, sort
         )
 
@@ -519,7 +516,7 @@ class Channel(StreamObject):
                 sort (bool):
                     Whether to sort exponents in descending order. Default is True.
         '''
-        dump_basis_nwchem(
+        lib.dump_basis_nwchem(
             self.get_pyscf_basis(sort=sort), stdout, atm, header, sort
         )
 
@@ -535,11 +532,10 @@ class Channel(StreamObject):
                 prefix (str):
                     Key in the checkpoint file. Default is None, which uses "channel".
         '''
-        from pygto.lib import chkfile_helper
         if prefix is None: prefix = 'channel'
-        chkfile_helper.dump(chkfile, f'{prefix}/type', self.__class__.__name__.lower())
-        chkfile_helper.dump(chkfile, f'{prefix}/l', self.l)
-        chkfile_helper.dump(chkfile, f'{prefix}/exponents', self.exponents)
+        lib.chkfile_helper.dump(chkfile, f'{prefix}/type', self.__class__.__name__.lower())
+        lib.chkfile_helper.dump(chkfile, f'{prefix}/l', self.l)
+        lib.chkfile_helper.dump(chkfile, f'{prefix}/exponents', self.exponents)
 
     @classmethod
     def init_from_chkfile(cls, chkfile, prefix=None):
@@ -555,10 +551,9 @@ class Channel(StreamObject):
                 channel (Channel):
                     Channel initialized from saved data.
         '''
-        from pygto.lib import chkfile_helper
         if prefix is None: prefix = 'channel'
-        l = int(chkfile_helper.load(chkfile, f'{prefix}/l'))
-        exponents = np.asarray(chkfile_helper.load(chkfile, f'{prefix}/exponents'), dtype=float)
+        l = int(lib.chkfile_helper.load(chkfile, f'{prefix}/l'))
+        exponents = np.asarray(lib.chkfile_helper.load(chkfile, f'{prefix}/exponents'), dtype=float)
         return cls(l, exponents)
 
 
@@ -593,7 +588,7 @@ def exponents_from_pyscf_basis_by_l(basis, l, repeat_thr=REPEAT_THR, emin=None, 
 
         exponents = np.hstack((exponents, es))
 
-    exponents = filter_by_range(exponents, emin, emax)
+    exponents = lib.filter_by_range(exponents, emin, emax)
     exponents = remove_repeated_exponents(exponents, repeat_thr)
     return exponents
 
@@ -779,9 +774,9 @@ class ETB(Channel):
                     `beta`.
         '''
         n, amin, beta = exponents_to_ETB(exponents)
-        p0 = inverse_soft_log_clip(amin, self.amin_min, self.amax_max, self.aminmax_k)
+        p0 = lib.inverse_soft_log_clip(amin, self.amin_min, self.amax_max, self.aminmax_k)
         if n > 1:
-            p1 = inverse_soft_clip(beta, self.beta_min, self.beta_max, self.beta_k)
+            p1 = lib.inverse_soft_clip(beta, self.beta_min, self.beta_max, self.beta_k)
             return np.asarray([p0,p1])
         else:
             return np.asarray([p0])
@@ -794,7 +789,7 @@ class ETB(Channel):
                 amin (float):
                     Minimum exponent after parameter transformation.
         '''
-        return soft_log_clip(self._parameters[0], self.amin_min, self.amax_max, self.aminmax_k)
+        return lib.soft_log_clip(self._parameters[0], self.amin_min, self.amax_max, self.aminmax_k)
 
     @property
     def beta(self):
@@ -805,7 +800,7 @@ class ETB(Channel):
                     Geometric ratio, or 1 for a one-exponent channel.
         '''
         if self._nexponent > 1:
-            return soft_clip(self._parameters[1], self.beta_min, self.beta_max, self.beta_k)
+            return lib.soft_clip(self._parameters[1], self.beta_min, self.beta_max, self.beta_k)
         else:
             return 1.
 
@@ -961,7 +956,7 @@ class Full(Channel):
                     Unconstrained exponent parameters.
         '''
         exponents = np.sort(exponents)
-        parameters = inverse_soft_log_clip(exponents, self.amin_min, self.amax_max, self.aminmax_k)
+        parameters = lib.inverse_soft_log_clip(exponents, self.amin_min, self.amax_max, self.aminmax_k)
         return parameters
 
     @property
@@ -973,7 +968,7 @@ class Full(Channel):
                     Primitive exponents.
         '''
         # @@HY
-        es = soft_log_clip(self._parameters, self.amin_min, self.amax_max, self.aminmax_k)
+        es = lib.soft_log_clip(self._parameters, self.amin_min, self.amax_max, self.aminmax_k)
         return np.sort(es)
 
     @exponents.setter

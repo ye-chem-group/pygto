@@ -3,7 +3,7 @@
 
 import numpy as np
 
-from pygto.lib.numdiff_helper import numer_grad
+from pygto import lib
 from pygto.optimizer.optimizer import Optimizer
 
 
@@ -97,7 +97,7 @@ class BFGS(Optimizer):
                     `grad_func` is None.
         '''
         if self.grad_func is None:
-            return numer_grad(
+            return lib.numer_grad(
                 self.get_objective,
                 parameters,
                 abs_step=self.grad_abs_step,

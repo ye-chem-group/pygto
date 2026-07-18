@@ -1,11 +1,10 @@
 import sys
 import numpy as np
 
-from pygto.lib import StreamObject, FloatSum
-from pygto.lib import chkfile_helper
+from pygto import lib
 
 
-class Optimizer(StreamObject):
+class Optimizer(lib.StreamObject):
     ''' Base class for PyGTO optimizers.
 
         Subclasses should implement `next_step`, which updates at least
@@ -180,7 +179,7 @@ class Optimizer(StreamObject):
         '''
         cost = self.get_cost(parameters)
         ratio_penalty = self.get_ratio_penalty(parameters)
-        objective_info = FloatSum(cost=cost, ratio_penalty=ratio_penalty)
+        objective_info = lib.FloatSum(cost=cost, ratio_penalty=ratio_penalty)
         return objective_info
 
     def update_objective_info_(self, parameters):

@@ -2,11 +2,11 @@ import sys
 import copy
 import numpy as np
 
-from pygto.lib import StreamObject
+from pygto import lib
 from pygto.optimizer import ScheduledOptimizer, Optimizer
 
 
-class MaterialConstraintAtomicOptimization(StreamObject):
+class MaterialConstraintAtomicOptimization(lib.StreamObject):
     ''' Optimize an atomic basis under periodic linear-dependence constraints.
 
         Args:
@@ -415,8 +415,6 @@ def solve_scale_for_penalty(spec, get_lindep_penalty, target_penalty, xtol=0.01,
 if __name__ == '__main__':
     from pyscf import gto, scf, mp, cc
     from pygto.basis import BasisSpec
-    from pygto.lib import pyscf_helper
-    from pygto.lib import Lattice
 
     try:
         atm = sys.argv[1]
@@ -447,7 +445,7 @@ if __name__ == '__main__':
     basis = gto.basis.load(basis, atm)
     spec = BasisSpec.init_from_pyscf_basis(basis, atm=atm)
 
-    lat = Lattice.init_from_vasp_poscar(fvasp)
+    lat = lib.Lattice.init_from_vasp_poscar(fvasp)
     basis_full = {}
     for at in list(set(lat.atms)):
         if at == atm:
@@ -463,7 +461,7 @@ if __name__ == '__main__':
         # valence
         {
             'prefix': 'ehf',
-            'cost_func': pyscf_helper.get_cost_func(
+            'cost_func': lib.pyscf_helper.get_cost_func(
                 atm, scf.RHF, mol_settings={'spin': spin}, keep_l=[0,1]
             ),
             'penalty_rescale': 1.,
@@ -472,7 +470,7 @@ if __name__ == '__main__':
         # polarization
         {
             'prefix': 'ecorr',
-            'cost_func': pyscf_helper.get_cost_func(
+            'cost_func': lib.pyscf_helper.get_cost_func(
                 atm, scf.RHF, mol_settings={'spin': spin},
                 CORR=cc.CCSD, corr_settings={'frozen': frozen},
             ),
@@ -481,6 +479,6 @@ if __name__ == '__main__':
         },
     ]
 
-    lindep_penalty_func = pyscf_helper.get_lindep_penalty_func(atm, cell, kappa0)
+    lindep_penalty_func = lib.pyscf_helper.get_lindep_penalty_func(atm, cell, kappa0)
     mcao = MCAO(spec, stages, lindep_penalty_func).set(verbose=5)
     mcao.kernel()
