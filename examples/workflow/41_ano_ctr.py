@@ -11,7 +11,7 @@ from pygto.basis import BasisSpec, ContractedBasis
 from pygto.workflow import ANO
 from pygto.data.elements import get_spin
 
-from pyscf import scf, cc
+from pyscf import scf
 
 
 if __name__ == '__main__':
@@ -67,11 +67,11 @@ if __name__ == '__main__':
         Reference output:
 
             Uncontracted cc-pVQZ (s/p) HF energy= -37.6882343494
-            ANO-CCSD-ctr cc-pVQZ (s/p) HF energy= -37.6882343494
+            ROHF-ANO-ctr cc-pVQZ (s/p) HF energy= -37.6882343494
             Reference    cc-pVQZ (s/p) HF energy= -37.6882343292
 
             Uncontracted cc-pVQZ (s/p) CCSD corr energy= -0.0452495657
-            ANO-CCSD-ctr cc-pVQZ (s/p) CCSD corr energy= -0.0449117626
+            ROHF-ANO-ctr cc-pVQZ (s/p) CCSD corr energy= -0.0449117626
             Reference    cc-pVQZ (s/p) CCSD corr energy= -0.0449117672
     '''
     cgto_ref = ContractedBasis.init_from_basis(basis, atm, keep_l=val_l)
@@ -82,7 +82,7 @@ if __name__ == '__main__':
     ehf_ctr = cost_func_hf(cgto)
     ehf_ref = cost_func_hf(cgto_ref)
     spec.log_note('Uncontracted cc-pVQZ (s/p) HF energy= %.10f' % (ehf_unc))
-    spec.log_note('ANO-CCSD-ctr cc-pVQZ (s/p) HF energy= %.10f' % (ehf_ctr))
+    spec.log_note('ROHF-ANO-ctr cc-pVQZ (s/p) HF energy= %.10f' % (ehf_ctr))
     spec.log_note('Reference    cc-pVQZ (s/p) HF energy= %.10f' % (ehf_ref))
     spec.log_note('')
 
@@ -94,14 +94,14 @@ if __name__ == '__main__':
     ecorr_ctr = cost_func_ccsd(cgto)
     ecorr_ref = cost_func_ccsd(cgto_ref)
     spec.log_note('Uncontracted cc-pVQZ (s/p) CCSD corr energy= %.10f' % (ecorr_unc))
-    spec.log_note('ANO-CCSD-ctr cc-pVQZ (s/p) CCSD corr energy= %.10f' % (ecorr_ctr))
+    spec.log_note('ROHF-ANO-ctr cc-pVQZ (s/p) CCSD corr energy= %.10f' % (ecorr_ctr))
     spec.log_note('Reference    cc-pVQZ (s/p) CCSD corr energy= %.10f' % (ecorr_ref))
     spec.log_note('')
 
-    ''' Compare the CCSD-ANO and reference contractions of the cc-pVQZ s/p subset.
+    ''' Compare the ROHF-ANO and reference contractions of the cc-pVQZ s/p subset.
     '''
     spec.log_note('Reference cc-pVQZ (s/p) basis:')
     cgto_ref.dump_basis()
     spec.log_note('')
-    spec.log_note('CCSD-ANO-ctr cc-pVQZ (s/p) basis:')
+    spec.log_note('ROHF-ANO-ctr cc-pVQZ (s/p) basis:')
     cgto.dump_basis()
