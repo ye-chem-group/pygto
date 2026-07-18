@@ -7,7 +7,7 @@ __all__ = ['get_lindep_penalty_func']
 
 
 def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoid_p=2,
-                            keep_l=None, verbose=None):
+                            keep_l=None, verbose=4):
     ''' Construct a periodic overlap linear-dependence penalty function.
 
         Args:
