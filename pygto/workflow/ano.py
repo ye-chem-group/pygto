@@ -11,7 +11,7 @@ lnames = 'spdfghikl'
 LMAX = len(lnames)-1
 
 
-class ANO(lib.StreamObject):
+class AtomicNaturalOrbital(lib.StreamObject):
     ''' Contract primitive basis functions by Atomic Natural Orbital (ANO) coefficients.
 
         Args:
@@ -280,6 +280,8 @@ class ANO(lib.StreamObject):
             self.basis = self.decontraction(self.ctr_basis, self.nfree_by_l, self.ctr_by_l)
 
         return self.basis
+
+ANO = AtomicNaturalOrbital
 
 
 def spherical_average_by_l(matrix, ao_l):
