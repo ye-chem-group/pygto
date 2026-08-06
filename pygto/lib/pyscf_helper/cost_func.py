@@ -3,7 +3,7 @@ from .atomic_scf import atomic_scf_with_pure_l_config_
 
 
 def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, keep_l=None,
-                  config=None):
+                  keep_channel=None, config=None):
     ''' Construct an atomic electronic-structure cost function.
 
         Args:
@@ -20,6 +20,8 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
                 Correlated-method attributes applied before execution. Default is None.
             keep_l (int or list of int):
                 Basis angular momenta to retain. Default is None, which keeps all.
+            keep_channel (int or list of int):
+                Basis channels to retain. Default is None, which keeps all.
             config (array_like):
                 Pure-angular-momentum electron configuration. Default is None.
 
@@ -53,7 +55,7 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
 
     def cost_func(spec, full_output=False):
         ''' Evaluate the electronic-structure cost for a BasisSpec. '''
-        basis = spec.get_pyscf_basis(keep_l=keep_l)
+        basis = spec.get_pyscf_basis(keep_l=keep_l, keep_channel=keep_channel)
         mol = get_mol(basis)
         mf = HF(mol)
         if config is not None:
