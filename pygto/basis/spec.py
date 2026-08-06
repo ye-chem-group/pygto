@@ -847,12 +847,16 @@ class BasisSpec(lib.StreamObject):
         new.filter_channel_by_exponent_range_(channel_idx, emin, emax)
         return new
 
-    def get_pyscf_basis(self, keep_l=None, emin=None, emax=None, sort=True):
+    def get_pyscf_basis(self, keep_l=None, keep_channel=None, emin=None, emax=None, sort=True):
         ''' Return the basis set in PySCF format.
 
             Args:
                 keep_l (int or list of int):
                     Specifying which angular momentum channel to keep.
+                    Default is None, which keeps all channels.
+
+                keep_channel (int or list of int):
+                    Specifying which channels to keep by channel index/indices.
                     Default is None, which keeps all channels.
 
                 emin/emax (float):
@@ -873,14 +877,17 @@ class BasisSpec(lib.StreamObject):
             Return:
                 Basis data in PySCF format.
         '''
+        if keep_channel is None:
+            keep_channel = list(range(self.nchannel))
         if keep_l is None:
             keep_l = self.angular_momenta
 
+        keep_channel = lib.to_int_list(keep_channel)
         keep_l = lib.to_int_list(keep_l)
 
         basis = []
-        for c in self.channels:
-            if c.l in keep_l:
+        for ic,c in enumerate(self.channels):
+            if c.l in keep_l and ic in keep_channel:
                 basis += c.get_pyscf_basis(emin, emax, sort=sort)
 
         return basis
