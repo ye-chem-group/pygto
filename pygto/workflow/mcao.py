@@ -102,8 +102,8 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
                     `penalty_rescale` and `active_l` default to 1 and None.
         '''
         must_have_keys = ['prefix', 'cost_func']
-        optional_keys = ['penalty_rescale', 'active_l']
-        stage_default = {'penalty_rescale': 1., 'active_l': None}
+        optional_keys = ['penalty_rescale', 'active_l', 'active_channel']
+        stage_default = {'penalty_rescale': 1., 'active_l': None, 'active_channel': None}
 
         stages = copy.deepcopy(stages)
 
@@ -305,6 +305,9 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
                 cost_func = stage['cost_func']
                 penalty_rescale = stage['penalty_rescale']
                 active_l = stage['active_l']
+                active_channel = stage['active_channel']
+                if active_l is not None and active_channel is not None:
+                    raise ValueError('Set either `active_l` or `active_channel`, not both!')
                 verbose = stage.get('verbose', verbose_optimizer)
 
                 def cost_func_with_penalty(spec):
@@ -316,21 +319,29 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
 
                 def format_cost(s):
                     ''' Format one optimizer's objective components for logging. '''
-                    energy = cost_func(s.spec)
-                    penalty, cond = penalty_func(s.spec, True)
+                    current_spec = s.spec.with_parameters(s.parameters)
+                    energy = cost_func(current_spec)
+                    penalty, cond = penalty_func(current_spec, True)
                     return 'cost= %.10f  e= %.10f  penalty= %.3e  cond= %.3e' % (
                         s.cost, energy, penalty, cond
                     )
 
-                with spec.temporary_active_l(active_l):
-                    opt_stages = ScheduledOptimizer.get_preset_stages()
-                    for opt_stage in opt_stages:
-                        opt_stage['optimizer_settings'] = {
-                            'format_cost': format_cost,
-                        }
-                    opt = ScheduledOptimizer(spec, cost_func_with_penalty,
-                                             stages=opt_stages).set(verbose=verbose_optimizer)
-                    opt.kernel()
+                if active_channel is not None:
+                    with spec.temporary_active_channel(active_channel):
+                        opt_stages = ScheduledOptimizer.get_preset_stages()
+                        for opt_stage in opt_stages:
+                            opt_stage['optimizer_settings']['format_cost'] = format_cost
+                        opt = ScheduledOptimizer(spec, cost_func_with_penalty,
+                                                 stages=opt_stages).set(verbose=verbose)
+                        opt.kernel()
+                else:
+                    with spec.temporary_active_l(active_l):
+                        opt_stages = ScheduledOptimizer.get_preset_stages()
+                        for opt_stage in opt_stages:
+                            opt_stage['optimizer_settings']['format_cost'] = format_cost
+                        opt = ScheduledOptimizer(spec, cost_func_with_penalty,
+                                                 stages=opt_stages).set(verbose=verbose)
+                        opt.kernel()
 
                 spec = opt.spec
 
