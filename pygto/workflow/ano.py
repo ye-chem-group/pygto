@@ -188,7 +188,7 @@ class AtomicNaturalOrbital(lib.StreamObject):
                     Partially decontracted basis.
         '''
         if ctr_by_l is None: ctr_by_l = self.ctr_by_l
-        if ctr_by_l is None: ctr_by_l = self._get_ctr_pattern(nfree_by_l)
+        if ctr_by_l is None: ctr_by_l = self._get_ctr_pattern(ctr_basis, nfree_by_l)
 
         channels = []
         for c in ctr_basis.channels:
@@ -228,7 +228,7 @@ class AtomicNaturalOrbital(lib.StreamObject):
         basis = ContractedBasis(channels).set(atm=self.atm)
         return basis
 
-    def _get_ctr_pattern(self, nfree_by_l=None):
+    def _get_ctr_pattern(self, ctr_basis, nfree_by_l=None):
         ''' Construct contraction groups from diffuse-primitive counts.
 
             Args:
@@ -245,16 +245,19 @@ class AtomicNaturalOrbital(lib.StreamObject):
             raise ValueError('Must provide nfree_by_l or ctr_pattern.')
 
         ctr_by_l = {}
-        for c in self.spec.channels:
+        for c,c_ctr in zip(self.spec.channels, ctr_basis.channels):
             l = c.l
             nprim = c.nbas
+            nctr = c_ctr.nctr
             nfree = nfree_by_l[l]
             if nfree > nprim:
                 raise ValueError('nfree for l %d exceeds nprim (%d > %d)' % (
                     l, nfree, nprim))
-            ctr_by_l[l] = [[i] for i in range(nfree)]
-            if nfree < nprim:
-                ctr_by_l[l] += [list(range(nfree,nprim))]
+            if nfree >= nprim - nctr:
+                ctr_by_l[l] = [[i] for i in range(nprim)]
+            else:
+                ctr_by_l[l] = [[i] for i in range(nfree)]
+                ctr_by_l[l].append(list(range(nfree, nprim)))
         return ctr_by_l
 
     def kernel(self, **kwargs):

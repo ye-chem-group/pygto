@@ -11,7 +11,7 @@ from pygto.basis import BasisSpec, ContractedBasis
 from pygto.workflow import ANO
 from pygto.data.elements import get_spin
 
-from pyscf import scf
+from pyscf import scf, cc
 
 
 if __name__ == '__main__':
