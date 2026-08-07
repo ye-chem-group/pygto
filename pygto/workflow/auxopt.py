@@ -94,7 +94,7 @@ class AuxiliaryBasisOptimization(TCAO):
                     ftol))
                 raise RuntimeError
 
-            self.cost = cost
+            self.cost = self.cost_init = cost
             self.cost_vec = cost_vec
 
         self.spec.channels = spec.channels
