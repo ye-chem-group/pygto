@@ -479,11 +479,13 @@ class ChannelReduction(TCAO):
             self.log_note('Series generation for Channel= %d  l= %d' % (
                 channel_idx, spec.channels[channel_idx].l
             ))
+
+            channel_cost_init, spec = self.optimize_candidate(spec, active_channel=channel_idx)
             self.log_note('Init channel structure= %s  cost= %.10f' % (
-                spec.channels[channel_idx].structure, self.cost_init
+                spec.channels[channel_idx].structure, channel_cost_init
             ))
 
-            results = [ (spec.channels[channel_idx].copy(), self.cost_init, 0.) ]
+            results = [ (spec.channels[channel_idx].copy(), channel_cost_init, 0.) ]
             self.dump_chkfile(spec.channels[channel_idx], channel_idx, first_pass=True)
 
             converged = False
@@ -491,8 +493,9 @@ class ChannelReduction(TCAO):
             while spec.channels[channel_idx].nbas > 1:
                 cost, spec = self.filter_optimization(
                     spec, force_accept=True, select_channel=channel_idx,
+                    cost_init=channel_cost_init,
                 )[:2]
-                df = cost - self.cost_init
+                df = cost - channel_cost_init
                 results.append( (spec.channels[channel_idx].copy(), cost, df) )
 
                 self.log_info('Current channel structure= %s  cost= %.10f  delta_f= %.3e' % (
