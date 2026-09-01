@@ -6,6 +6,7 @@ except PackageNotFoundError:
     __version__ = "0+unknown"
 
 
+from . import __config__
 from . import lib
 from .basis import BasisSpec, ContractedBasis
 from .optimizer import ScheduledOptimizer

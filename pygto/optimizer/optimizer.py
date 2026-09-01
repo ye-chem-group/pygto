@@ -2,6 +2,7 @@ import sys
 import numpy as np
 
 from pygto import lib
+from pygto import __config__
 
 
 class Optimizer(lib.StreamObject):
@@ -62,8 +63,10 @@ class Optimizer(lib.StreamObject):
         # Attributes for optimization control
         self.accuracy = 'medium'    # this sets ftol, xtol, and gtol
 
-        self.ratio_min = 1.7
-        self.ratio_penalty_strength = 10.   # Hartree
+        self.ratio_min = getattr(__config__, 'optimizer_ratio_min', 1.7)
+        self.ratio_penalty_strength = getattr(
+            __config__, 'optimizer_ratio_penalty_strength', 10.     # Hartree
+        )
         self.ratio_penalty_warning_thresh = 1e-6    # 1 micro-Hartree
 
         self.chkfile = None # save most recent spec
