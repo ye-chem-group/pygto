@@ -25,8 +25,9 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
                 Number of MCAO passes at each lattice scale. Default is 5.
             lattice_scaling_step_size (float):
                 Decrement between successive lattice scales. Default is 0.03.
-            lattice_scaling_target_penalty (float):
-                Penalty used to determine the initial lattice scale. Default is 0.1.
+            lattice_scaling_target_cond (float):
+                Condition number used to determine the initial lattice scale. Default
+                is `1e10`.
             verbose_optimizer (int or None):
                 Verbosity of stage optimizers. Default is None, which derives it from
                 this object's verbosity.
@@ -44,7 +45,7 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
         self.penalty_strength = 0.01
         self.max_cycle = 5
         self.lattice_scaling_step_size = 0.03
-        self.lattice_scaling_target_penalty = 0.1
+        self.lattice_scaling_target_cond = 1e10
         self.verbose_optimizer = None
 
         self.basis_to_save = None
@@ -66,7 +67,7 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
         self.log_info('penalty_strength= %.15g' % self.penalty_strength)
         self.log_info('max_cycle= %d' % self.max_cycle)
         self.log_info('lattice_scaling_step_size= %.15g' % self.lattice_scaling_step_size)
-        self.log_info('lattice_scaling_target_penalty= %.15g' % self.lattice_scaling_target_penalty)
+        self.log_info('lattice_scaling_target_cond= %.15g' % self.lattice_scaling_target_cond)
         self.log_info('verbose_optimizer= %s' % self.verbose_optimizer)
         self.log_info('basis_to_save= %s' % self.basis_to_save)
         self.log_info('chkfile= %s' % (str(self.chkfile)))
@@ -168,7 +169,8 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
                 spec (BasisSpec):
                     Basis used to determine the initial scale.
                 scale0 (float):
-                    Initial scale. Default is None, which solves for the target penalty.
+                    Initial scale. Default is None, which solves for the target
+                    condition number.
 
             Return:
                 scales (ndarray):
@@ -178,8 +180,8 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
             raise TypeError('scale0 must be float.')
 
         if scale0 is None:
-            scale0 = solve_scale_for_penalty(spec, self.lindep_penalty_func,
-                                             self.lattice_scaling_target_penalty)
+            scale0 = solve_scale_for_cond(spec, self.lindep_penalty_func,
+                                          self.lattice_scaling_target_cond)
 
         if np.isclose(scale0, 1.):
             return np.asarray([1.])
@@ -378,16 +380,16 @@ class MaterialConstraintAtomicOptimization(lib.StreamObject):
 MCAO = MaterialConstraintAtomicOptimization
 
 
-def solve_scale_for_penalty(spec, get_lindep_penalty, target_penalty, xtol=0.01, b=2.):
-    ''' Solve for a lattice scale producing a target penalty.
+def solve_scale_for_cond(spec, get_lindep_penalty, target_cond, xtol=0.01, b=2.):
+    ''' Solve for a lattice scale producing a target condition number.
 
         Args:
             spec (BasisSpec):
                 Basis specification passed to the penalty function.
             get_lindep_penalty (callable):
                 Function returning `(penalty, condition_number)` for `(spec, scale)`.
-            target_penalty (float):
-                Desired penalty.
+            target_cond (float):
+                Maximum acceptable condition number.
             xtol (float):
                 Scale tolerance for bisection. Default is 0.01.
             b (float):
@@ -397,30 +399,33 @@ def solve_scale_for_penalty(spec, get_lindep_penalty, target_penalty, xtol=0.01,
             scale (float):
                 Lattice scale, bounded below by 1.
     '''
-    penalty = get_lindep_penalty(spec, 1.)[0]
-    if penalty < target_penalty:
+    cond = get_lindep_penalty(spec, 1.)[1]
+    if np.isfinite(cond) and cond <= target_cond:
         return 1.
 
-    from scipy.optimize import bisect
-    func = lambda x: get_lindep_penalty(spec, x)[0] - target_penalty
+    def acceptable(scale):
+        cond = get_lindep_penalty(spec, scale)[1]
+        return np.isfinite(cond) and cond <= target_cond
 
     find_b = False
     for cycle in range(10):
-        if func(b) < 0:
+        if acceptable(b):
             find_b = True
             break
         b *= 1.5
     if not find_b:
-        raise RuntimeError('Failed to bracket lattice scale for target penalty in [1, %.10g].' % b)
+        raise RuntimeError('Failed to bracket lattice scale for target condition number '
+                           'in [1, %.10g].' % b)
 
-    scale, res = bisect(func, 1., b, xtol=xtol, full_output=True)
-    if not res.converged:
-        raise RuntimeError('Bisect does not converge. Reason= %s' % (res.flag))
+    a = 1.
+    while b-a > xtol:
+        scale = (a+b)/2
+        if acceptable(scale):
+            b = scale
+        else:
+            a = scale
 
-    if abs(scale-1.) < xtol:
-        return 1.
-
-    return scale
+    return b
 
 
 if __name__ == '__main__':
