@@ -304,7 +304,7 @@ class TargetCostAtomicOptimization(lib.StreamObject):
         for cycle in range(1, self.max_cycle+1):
 
             # step 1: a rapid rigid filter by exponentwise error
-            self.cost, spec, nochange = self.filter_rigid(spec)
+            self.cost, spec, nochange = self.filter_rigid(spec, ftol=self.ftol*0.1)
 
             # step 2: a dedicated optimization-based filter
             self.cost, spec, nochange = self.filter_optimization(spec)
