@@ -3,11 +3,11 @@ import numpy as np
 from ..lattice_helper import Lattice
 
 
-__all__ = ['get_lindep_penalty_func']
+__all__ = ['get_lindep_penalty_func', 'fsw_filter']
 
 
 def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoid_p=2,
-                            keep_l=None, verbose=4):
+                            keep_l=None, verbose=4, penalty_type='sigmoid', beta=2):
     ''' Construct a periodic overlap linear-dependence penalty function.
 
         Args:
@@ -20,13 +20,19 @@ def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoi
             natm_min (int):
                 Minimum effective atom count controlling k-point meshes. Default is 300.
             ev_min (float):
-                Smooth lower bound for overlap eigenvalues. Default is `1e-8`.
+                Smooth lower bound for `e / e0`. Default is `1e-8`.
             sigmoid_p (float):
-                Exponent controlling penalty sharpness. Default is 2.
+                Exponent controlling the sigmoid and logarithmic filter sharpness.
+                Default is 2.
             keep_l (int or list of int):
                 Angular momenta to keep. Default is None, which keeps all channels.
             verbose (int):
                 Logging verbosity. Default is None.
+            penalty_type (str):
+                FSW filter function. Options are `sigmoid`, `log`, and
+                `log_squared`. Default is `sigmoid`.
+            beta (float):
+                Smoothness parameter for the `log_squared` filter. Default is 2.
 
         Return:
             get_lindep_penalty (callable):
@@ -61,7 +67,8 @@ def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoi
         cond = emax/emin
 
         penalty = np.sum([
-            d*np.sum(sigmoid(e/e0, sigmoid_p, lower_bound=ev_min))
+            d*np.sum(fsw_filter(e, e0, penalty_type=penalty_type, p=sigmoid_p,
+                                beta=beta, lower_bound=ev_min))
             for e,d in zip(ek,kpts_deg)
         ])
         penalty /= np.sum(kpts_deg)
@@ -69,6 +76,42 @@ def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoi
         return penalty, cond
 
     return lindep_penalty_func
+
+
+def fsw_filter(e, e0, penalty_type='sigmoid', p=2, beta=2, lower_bound=1e-8):
+    ''' Evaluate per-mode filtered spectral weights.
+
+        Args:
+            e (array_like):
+                Overlap eigenvalues.
+            e0 (float):
+                Eigenvalue threshold, normally `emax / kappa0`.
+            penalty_type (str):
+                FSW filter function. Options are `sigmoid`, `log`, and
+                `log_squared`. Default is `sigmoid`.
+            p (float):
+                Exponent controlling the sigmoid and logarithmic filter sharpness.
+                Default is 2.
+            beta (float):
+                Smoothness parameter for the `log_squared` filter. Default is 2.
+            lower_bound (float):
+                Smooth lower bound for `e / e0`. Default is `1e-8`.
+
+        Return:
+            weights (ndarray):
+                Filtered spectral weight for each eigenvalue.
+    '''
+    x = safe_zero(np.asarray(e)/e0, lower_bound)
+
+    if penalty_type == 'sigmoid':
+        return 1./(1. + np.power(x, p))
+    elif penalty_type == 'log':
+        return np.logaddexp(0., -p*np.log(x))/p
+    elif penalty_type == 'log_squared':
+        value = np.logaddexp(0., -beta*np.log(x))/beta
+        return value**2
+    else:
+        raise ValueError('Unknown penalty_type: %s' % penalty_type)
 
 
 def get_uniq_kpts(cell, natm_min=300, verbose=None):
