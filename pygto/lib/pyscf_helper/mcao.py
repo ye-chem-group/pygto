@@ -7,7 +7,7 @@ __all__ = ['get_lindep_penalty_func', 'fsw_filter']
 
 
 def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoid_p=2,
-                            keep_l=None, verbose=4, penalty_type='sigmoid', beta=2):
+                            keep_l=None, verbose=4, penalty_type='log_squared', beta=2):
     ''' Construct a periodic overlap linear-dependence penalty function.
 
         Args:
@@ -29,8 +29,9 @@ def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoi
             verbose (int):
                 Logging verbosity. Default is None.
             penalty_type (str):
-                FSW filter function. Options are `sigmoid`, `log`, and
-                `log_squared`. Default is `sigmoid`.
+                FSW filter function. Options are `sigmoid`, `log`, and `log_squared`.
+                Default is `log_squared`. `sigmoid` is not recommended and kept only
+                for backward compatibility.
             beta (float):
                 Smoothness parameter for the `log_squared` filter. Default is 2.
 
