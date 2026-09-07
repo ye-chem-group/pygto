@@ -51,7 +51,7 @@ if __name__ == '__main__':
     pol_l = [2, 3]
     frozen = 1
     # In practice, scan kappa0 over values such as 1e10, 3e9, ..., 1e7.
-    kappa0 = 1e8
+    kappa0s = [1e10,3e9,1e9,3e8,1e8,3e7,1e7]
     # Structure used to evaluate the linear-dependence penalty.
     fvasp = str(DATA_DIR / 'diamond.vasp')
 
@@ -106,45 +106,79 @@ if __name__ == '__main__':
     '''
     lat = lib.Lattice.init_from_vasp_poscar(fvasp)
     cell = lat.get_pyscf_cell()
-    lindep_penalty_func = lib.pyscf_helper.get_lindep_penalty_func(atm, cell, kappa0)
 
-    ''' Perform Material Constrained Atomic Optimization (MCAO).
-    '''
-    opt = MCAO(spec, stages, lindep_penalty_func).set(verbose=5)
-    opt.kernel()
+    results = []
+    for kappa0 in kappa0s:
+        lindep_penalty_func = lib.pyscf_helper.get_lindep_penalty_func(atm, cell, kappa0)
+
+        ''' Perform Material Constrained Atomic Optimization (MCAO).
+            Because MCAO changes ``spec`` in place, next kappa0 will automatically use
+            optimized ``spec`` from previous kappa0.
+        '''
+        opt = MCAO(spec, stages, lindep_penalty_func).set(verbose=5)
+        opt.kernel()
+        results.append((kappa0, spec.copy()))
 
     ''' Compare atomic accuracy and solid-state numerical stability with the reference
         cc-pVTZ basis.
 
         Reference output:
 
-            **** Atomic Accuracy and Solid-state Stability ****
-            Init cc-pVTZ basis: ehf= -37.6866622379  eccsd= -0.0933596761
-                                penalty= 9.478e-01  cond= 2.109e+09
-            MCAO-cc-pVTZ basis: ehf= -37.6859315498  eccsd= -0.0929533574
-                                penalty= 2.460e-02  cond= 3.458e+07
+**** Atomic Accuracy and Solid-state Stability ****
+Init cc-pVTZ basis:
+  ehf= -37.6866622379  eccsd= -0.0933596761  penalty= 1.643e+01  cond= 2.109e+09
 
-        Both the atomic HF and CCSD correlation energies are slightly less accurate, but
-        the MCAO basis has improved numerical stability, as indicated by its lower LDP
-        and condition number.
+MCAO cc-pVTZ basis:
+  kappa0= 1e+10  ehf= -37.6866623658  eccsd= -0.0933652758  penalty= 1.503e+01  cond= 1.872e+09
+  kappa0= 1e+10  err= -0.0000001279         -0.0000055997
+
+  kappa0= 3e+09  ehf= -37.6866541357  eccsd= -0.0933499791  penalty= 1.170e+01  cond= 1.022e+09
+  kappa0= 3e+09  err=  0.0000081022          0.0000096970
+
+  kappa0= 1e+09  ehf= -37.6866085105  eccsd= -0.0933174217  penalty= 7.375e+00  cond= 5.012e+08
+  kappa0= 1e+09  err=  0.0000537274          0.0000422544
+
+  kappa0= 3e+08  ehf= -37.6864755187  eccsd= -0.0932502812  penalty= 3.417e+00  cond= 1.986e+08
+  kappa0= 3e+08  err=  0.0001867192          0.0001093950
+
+  kappa0= 1e+08  ehf= -37.6862407455  eccsd= -0.0931492355  penalty= 1.260e+00  cond= 7.881e+07
+  kappa0= 1e+08  err=  0.0004214924          0.0002104406
+
+  kappa0= 3e+07  ehf= -37.6858284203  eccsd= -0.0929756984  penalty= 2.451e-01  cond= 2.735e+07
+  kappa0= 3e+07  err=  0.0008338175          0.0003839777
+
+  kappa0= 1e+07  ehf= -37.6852736864  eccsd= -0.0926247741  penalty= 2.271e-02  cond= 1.007e+07
+  kappa0= 1e+07  err=  0.0013885515          0.0007349020
+
+        As kappa0 is tightened from 1e10 (nearly no penalty) to 1e7 (strong penalty), both
+        the atomic HF and CCSD correlation energy errors increase to about 1 mEh, but the
+        condition number decreases from 2e9 to 1e7. Also, starting from kappa0 = 1e9 and
+        downwards, we see that the actual condition number closely follows kappa0.
     '''
     spec.log_note('**** Atomic Accuracy and Solid-state Stability ****')
 
-    ehf = cost_func_hf(spec_init)
-    ecorr = cost_func_ccsd(spec_init)
-    penalty, cond = lindep_penalty_func(spec_init)
-    spec.log_note('Init cc-pVTZ basis: ehf= %.10f  eccsd= %.10f' % (ehf, ecorr))
-    spec.log_note('                    penalty= %.3e  cond= %.3e' % (penalty, cond))
-
-    ehf = cost_func_hf(spec)
-    ecorr = cost_func_ccsd(spec)
-    penalty, cond = lindep_penalty_func(spec)
-    spec.log_note('MCAO-cc-pVTZ basis: ehf= %.10f  eccsd= %.10f' % (ehf, ecorr))
-    spec.log_note('                    penalty= %.3e  cond= %.3e' % (penalty, cond))
+    ehf_init = cost_func_hf(spec_init)
+    ecorr_init = cost_func_ccsd(spec_init)
+    penalty_init, cond_init = lindep_penalty_func(spec_init)
+    spec.log_note('Init cc-pVTZ basis:')
+    spec.log_note('ehf= %13.10f  eccsd= %13.10f  penalty= %.3e  cond= %.3e' % (
+        ehf_init, ecorr_init, penalty_init, cond_init), indent=1)
     spec.log_note('')
+
+    spec.log_note('MCAO cc-pVTZ basis:')
+    for kappa0,spec in results:
+        ehf = cost_func_hf(spec)
+        ecorr = cost_func_ccsd(spec)
+        penalty, cond = lindep_penalty_func(spec)
+        spec.log_note('kappa0= %.0e  ehf= %13.10f  eccsd= %13.10f  penalty= %.3e  cond= %.3e' % (
+            kappa0, ehf, ecorr, penalty, cond), indent=1)
+        spec.log_note('kappa0= %.0e  err= %13.10f         %13.10f' % (
+            kappa0, ehf-ehf_init, ecorr-ecorr_init), indent=1)
+        spec.log_note('')
 
     spec.log_note('Initial cc-pVTZ basis:')
     spec_init.dump_basis()
     spec.log_note('')
-    spec.log_note('MCAO-cc-pVTZ basis (with kappa0= %.3e):' % kappa0)
-    spec.dump_basis()
+    for kappa0,spec in results:
+        spec.log_note('MCAO-cc-pVTZ basis (with kappa0= %.3e):' % kappa0)
+        spec.dump_basis()
