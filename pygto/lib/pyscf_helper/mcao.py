@@ -6,8 +6,8 @@ from ..lattice_helper import Lattice
 __all__ = ['get_lindep_penalty_func', 'fsw_filter']
 
 
-def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoid_p=2,
-                            keep_l=None, verbose=4, penalty_type='log_squared', beta=2):
+def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, beta=2,
+                            keep_l=None, verbose=4, penalty_type='log_squared'):
     ''' Construct a periodic overlap linear-dependence penalty function.
 
         Args:
@@ -21,7 +21,7 @@ def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoi
                 Minimum effective atom count controlling k-point meshes. Default is 300.
             ev_min (float):
                 Smooth lower bound for `e / e0`. Default is `1e-8`.
-            sigmoid_p (float):
+            beta (float):
                 Exponent controlling the sigmoid and logarithmic filter sharpness.
                 Default is 2.
             keep_l (int or list of int):
@@ -32,8 +32,6 @@ def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoi
                 FSW filter function. Options are `sigmoid`, `log`, and `log_squared`.
                 Default is `log_squared`. `sigmoid` is not recommended and kept only
                 for backward compatibility.
-            beta (float):
-                Smoothness parameter for the `log_squared` filter. Default is 2.
 
         Return:
             get_lindep_penalty (callable):
@@ -68,8 +66,8 @@ def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoi
         cond = emax/emin
 
         penalty = np.sum([
-            d*np.sum(fsw_filter(e, e0, penalty_type=penalty_type, p=sigmoid_p,
-                                beta=beta, lower_bound=ev_min))
+            d*np.sum(fsw_filter(e, e0, penalty_type=penalty_type, beta=beta,
+                                lower_bound=ev_min))
             for e,d in zip(ek,kpts_deg)
         ])
         penalty /= np.sum(kpts_deg)
@@ -79,7 +77,7 @@ def get_lindep_penalty_func(atm, cell, kappa0, natm_min=300, ev_min=1e-8, sigmoi
     return lindep_penalty_func
 
 
-def fsw_filter(e, e0, penalty_type='sigmoid', p=2, beta=2, lower_bound=1e-8):
+def fsw_filter(e, e0, penalty_type='log_squared', beta=2, lower_bound=1e-8):
     ''' Evaluate per-mode filtered spectral weights.
 
         Args:
@@ -89,12 +87,10 @@ def fsw_filter(e, e0, penalty_type='sigmoid', p=2, beta=2, lower_bound=1e-8):
                 Eigenvalue threshold, normally `emax / kappa0`.
             penalty_type (str):
                 FSW filter function. Options are `sigmoid`, `log`, and
-                `log_squared`. Default is `sigmoid`.
-            p (float):
+                `log_squared`. Default is `log_squared`.
+            beta (float):
                 Exponent controlling the sigmoid and logarithmic filter sharpness.
                 Default is 2.
-            beta (float):
-                Smoothness parameter for the `log_squared` filter. Default is 2.
             lower_bound (float):
                 Smooth lower bound for `e / e0`. Default is `1e-8`.
 
@@ -105,12 +101,13 @@ def fsw_filter(e, e0, penalty_type='sigmoid', p=2, beta=2, lower_bound=1e-8):
     x = safe_zero(np.asarray(e)/e0, lower_bound)
 
     if penalty_type == 'sigmoid':
-        return 1./(1. + np.power(x, p))
-    elif penalty_type == 'log':
-        return np.logaddexp(0., -p*np.log(x))/p
-    elif penalty_type == 'log_squared':
+        return 1./(1. + np.power(x, beta))
+    elif penalty_type in ['log', 'log_squared']:
         value = np.logaddexp(0., -beta*np.log(x))/beta
-        return value**2
+        if penalty_type == 'log':
+            return value
+        else:
+            return value**2
     else:
         raise ValueError('Unknown penalty_type: %s' % penalty_type)
 
@@ -186,13 +183,13 @@ def safe_zero(x, lower_bound):
     return (x**2 + lower_bound**2)**0.5
 
 
-def sigmoid(x, p, lower_bound=1e-10):
-    ''' Evaluate the decreasing penalty sigmoid `1 / (1 + x**p)`.
+def sigmoid(x, beta, lower_bound=1e-10):
+    ''' Evaluate the decreasing penalty sigmoid `1 / (1 + x**beta)`.
 
         Args:
             x (array_like):
                 Input values.
-            p (float):
+            beta (float):
                 Sigmoid exponent.
             lower_bound (float):
                 Smooth lower magnitude bound. Default is `1e-10`.
@@ -202,4 +199,4 @@ def sigmoid(x, p, lower_bound=1e-10):
                 Sigmoid values.
     '''
     x = safe_zero(x, lower_bound)
-    return 1./(1. + np.power(x, p))
+    return 1./(1. + np.power(x, beta))
