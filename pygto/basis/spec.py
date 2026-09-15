@@ -5,7 +5,7 @@ import numpy as np
 from contextlib import contextmanager
 
 from pygto import lib
-from pygto.basis.channel import ETB, Full
+from pygto.basis.channel import ETB, Legendre, Full
 
 
 class BasisSpec(lib.StreamObject):
@@ -129,8 +129,8 @@ class BasisSpec(lib.StreamObject):
                 basis (list):
                     Basis data in PySCF format.
                 channel_type (str):
-                    Type of channels to construct. Accepted values are "etb" and
-                    "full" (case insensitive). Default is "full".
+                    Type of channels to construct. Accepted values are "etb",
+                    "legendre", and "full" (case insensitive). Default is "full".
                 repeat_thr (float):
                     Exponents whose ratio is smaller than this threshold are treated
                     as repeated and thus discarded. Default is 1.01.
@@ -154,10 +154,13 @@ class BasisSpec(lib.StreamObject):
         try:
             Channel = {
                 'etb': ETB,
+                'legendre': Legendre,
                 'full': Full
             }[channel_type.lower()]
         except:
-            raise ValueError('Channel type must be "etb" or "full" (case insensitive).')
+            raise ValueError(
+                'Channel type must be "etb", "legendre", or "full" (case insensitive).'
+            )
 
         angular_momenta = sorted(list(set([int(b[0]) for b in basis])))
         if keep_l is not None:
@@ -196,13 +199,36 @@ class BasisSpec(lib.StreamObject):
         channels = [ETB.init_from_etb_params(*etb_param) for etb_param in etb_params]
         return cls(channels).set(atm=atm)
 
+    @classmethod
+    def init_from_legendre_params(cls, legendre_params, atm=None):
+        ''' Initialize a basis specification from Legendre parameters.
+
+            Args:
+                legendre_params (list or tuple of tuple):
+                    Legendre channel parameters. Each entry has the form
+                    `(l, nprim, Ak)` or `(l, nprim, Ak, kmax)`, where `Ak`
+                    contains the Legendre coefficients and `kmax` optionally
+                    overrides the maximum Legendre degree.
+                atm (str):
+                    Atomic symbol associated with the basis. Default is None.
+
+            Return:
+                spec (BasisSpec):
+                    BasisSpec containing one Legendre channel for each entry.
+        '''
+        channels = [
+            Legendre.init_from_legendre_params(*params)
+            for params in legendre_params
+        ]
+        return cls(channels).set(atm=atm)
+
     def convert_to(self, channel_type):
         ''' Convert a copy of the BasisSpec to specified channel types.
 
             Args:
                 channel_type (str or list of str):
                     Channel type for all channels or one type per channel. Accepted
-                    values are "etb" and "full" (case insensitive).
+                    values are "etb", "legendre", and "full" (case insensitive).
 
             Return:
                 spec (BasisSpec):
@@ -218,7 +244,7 @@ class BasisSpec(lib.StreamObject):
             Args:
                 channel_type (str or list of str):
                     Channel type for all channels or one type per channel. Accepted
-                    values are "etb" and "full" (case insensitive).
+                    values are "etb", "legendre", and "full" (case insensitive).
 
             Return:
                 self (BasisSpec):
@@ -1005,8 +1031,9 @@ class BasisSpec(lib.StreamObject):
                     - `spec.channels` is loaded from "[prefix]/channel_i" for i = 0, 1, ...
                 channel_type (str):
                     Channel type to which loaded channels are converted. Accepted
-                    values are "etb" and "full" (case insensitive). Default is None,
-                    which uses the saved channel type without conversion.
+                    values are "etb", "legendre", and "full" (case insensitive).
+                    Default is None, which uses the saved channel type without
+                    conversion.
 
             Return:
                 spec (BasisSpec):
@@ -1014,6 +1041,7 @@ class BasisSpec(lib.StreamObject):
         '''
         channel_types = {
             'etb': ETB,
+            'legendre': Legendre,
             'full': Full
         }
         if channel_type is not None:
@@ -1021,7 +1049,10 @@ class BasisSpec(lib.StreamObject):
                 channel_type = channel_type.lower()
                 channel_types[channel_type]
             except (AttributeError, KeyError):
-                raise ValueError('Channel type must be "etb" or "full" (case insensitive).')
+                raise ValueError(
+                    'Channel type must be "etb", "legendre", or "full" '
+                    '(case insensitive).'
+                )
 
         if prefix is None: prefix = 'spec'
         try:

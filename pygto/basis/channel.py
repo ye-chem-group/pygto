@@ -11,6 +11,7 @@ AMINMAX_K = 10.
 BETA_MIN = 1.3
 BETA_MAX = 10
 BETA_K = 10.
+LEGENDRE_KMAX = 5
 
 
 class Channel(lib.StreamObject):
@@ -73,8 +74,8 @@ class Channel(lib.StreamObject):
 
             Args:
                 channel_type (str):
-                    Target channel type. Accepted values are "etb" and "full"
-                    (case insensitive).
+                    Target channel type. Accepted values are "etb", "legendre",
+                    and "full" (case insensitive).
 
             Return:
                 channel (Channel):
@@ -87,10 +88,18 @@ class Channel(lib.StreamObject):
         ct = ct.lower()
         if ct == 'etb':
             new = ETB(self.l, self.exponents)
+        elif ct == 'legendre':
+            if isinstance(self, Legendre):
+                new = self.copy()
+            else:
+                new = Legendre(self.l, self.exponents)
         elif ct == 'full':
             new = Full(self.l, self.exponents)
         else:
-            raise TypeError('Unknown channel type. Acceptable values are "etb" and "full".')
+            raise TypeError(
+                'Unknown channel type. Acceptable values are "etb", "legendre", '
+                'and "full".'
+            )
 
         for k in self._keys:
             setattr(new, k, getattr(self, k))
@@ -967,7 +976,6 @@ class Full(Channel):
                 exponents (ndarray):
                     Primitive exponents.
         '''
-        # @@HY
         es = lib.soft_log_clip(self._parameters, self.amin_min, self.amax_max, self.aminmax_k)
         return np.sort(es)
 
@@ -980,6 +988,287 @@ class Full(Channel):
                     Strictly positive primitive exponents.
         '''
         Channel.exponents.fset(self, value)
+
+
+class Legendre(Channel):
+    r''' A Legendre polynomial-based optimizable channel.
+
+        Ref: J. Chem. Phys. 118, 1101 (2003)
+
+        Exponents are represented as
+        ```
+            ln(alpha_i) = \sum_{k=0}^{kmax} A_k P_k(x_i)
+        ```
+        where `P_k` is the k-th order Legendre polynomial,
+        ```
+            x_i = 2*(i-1) / (nprim-1) - 1
+        ```
+        and `A_k` are the optimization parameters. The paper orders the exponents
+        from tight to diffuse; the public `exponents` property returns them in the
+        ascending order used by `Channel`.
+
+        Args:
+            l (int):
+                Angular momentum.
+            exponents (array_like):
+                Primitive exponents.
+            kmax (int):
+                Maximum Legendre degree. Default is `LEGENDRE_KMAX`. When there
+                are fewer than `kmax+1` exponents, the effective degree is reduced
+                to `nprim-1`.
+
+        Attributes:
+            kmax (int):
+                Maximum Legendre degree.
+    '''
+
+    def __init__(self, l, exponents, kmax=LEGENDRE_KMAX):
+        self._nexponent = None
+        self.kmax = kmax
+        super().__init__(l, exponents)
+
+    @classmethod
+    def init_from_legendre_params(cls, l, nprim, Ak, kmax=None):
+        ''' Initialize a Legendre channel from parameters.
+
+            Args:
+                l (int):
+                    Angular momentum.
+                nprim (int):
+                    Number of primitive exponents.
+                Ak (array_like):
+                    Legendre coefficients.
+                kmax (int):
+                    Maximum Legendre degree. Default is None, which uses one less
+                    than the number of supplied coefficients.
+
+            Return:
+                channel (Legendre):
+                    Legendre channel generated from the supplied parameters.
+        '''
+        from numbers import Integral
+        if not isinstance(l, Integral):
+            raise TypeError('l must be an integer.')
+        elif l < 0:
+            raise ValueError('l must be nonnegative.')
+
+        Ak = np.asarray(Ak, dtype=float)
+        exponents = Legendre_to_exponents(
+            nprim, Ak, cls.amin_min, cls.amax_max, cls.aminmax_k
+        )
+        if kmax is None:
+            kmax = Ak.size-1
+        return cls(l, exponents, kmax=kmax)
+
+    def exponents_to_parameters(self, exponents):
+        ''' Convert primitive exponents to Legendre coefficients.
+
+            Args:
+                exponents (array_like):
+                    Primitive exponents.
+
+            Return:
+                parameters (ndarray):
+                    Legendre coefficients `Ak`.
+        '''
+        degree = min(self.kmax, len(exponents)-1)
+        _, Ak = exponents_to_Legendre(
+            exponents, degree, self.amin_min, self.amax_max, self.aminmax_k
+        )
+        return Ak
+
+    @property
+    def Ak(self):
+        ''' Return the Legendre coefficients.
+
+            Return:
+                Ak (ndarray):
+                    Copy of the Legendre coefficients.
+        '''
+        return self.parameters
+
+    @property
+    def exponents(self):
+        ''' Return Legendre-parameterized exponents in ascending order.
+
+            Return:
+                exponents (ndarray):
+                    Primitive exponents.
+        '''
+        if self._nexponent == 0:
+            return np.asarray([], dtype=float)
+        exponents = Legendre_to_exponents(
+            self._nexponent, self.Ak,
+            self.amin_min, self.amax_max, self.aminmax_k
+        )
+        return np.sort(exponents)
+
+    @exponents.setter
+    def exponents(self, value):
+        ''' Reset Legendre coefficients from primitive exponents.
+
+            Args:
+                value (array_like):
+                    Strictly positive primitive exponents.
+        '''
+        Channel.exponents.fset(self, value)
+
+    def copy(self):
+        ''' Return an independent copy preserving the maximum degree. '''
+        new = self.__class__(self.l, self.exponents, kmax=self.kmax)
+        new.parameters = self.parameters
+        for k in self._keys:
+            setattr(new, k, getattr(self, k))
+        return new
+
+    @property
+    def kmax(self):
+        ''' Return the maximum Legendre degree. '''
+        return self._kmax
+
+    @kmax.setter
+    def kmax(self, value):
+        ''' Set the maximum degree and refit the current exponents.
+
+            Changing `kmax` may change the number of optimization parameters.
+        '''
+        from numbers import Integral
+        if not isinstance(value, Integral):
+            raise TypeError('kmax must be an integer.')
+        elif value < 0:
+            raise ValueError('kmax must be nonnegative.')
+
+        value = int(value)
+        if self._nexponent is None:
+            self._kmax = value
+        elif value != self._kmax:
+            exponents = self.exponents
+            self._kmax = value
+            self.exponents = exponents
+
+    def with_kmax(self, kmax):
+        ''' Return a copy refitted with a different maximum Legendre degree.
+
+            Args:
+                kmax (int):
+                    New maximum Legendre degree.
+
+            Return:
+                channel (Legendre):
+                    Refitted Legendre channel.
+        '''
+        new = self.__class__(self.l, self.exponents, kmax=kmax)
+        for k in self._keys:
+            setattr(new, k, getattr(self, k))
+        return new
+
+    def dump_chkfile(self, chkfile, prefix=None):
+        ''' Save channel data and the maximum Legendre degree. '''
+        if prefix is None: prefix = 'channel'
+        super().dump_chkfile(chkfile, prefix)
+        lib.chkfile_helper.dump(chkfile, f'{prefix}/kmax', self.kmax)
+
+    @classmethod
+    def init_from_chkfile(cls, chkfile, prefix=None):
+        ''' Initialize a Legendre channel from a checkpoint file. '''
+        if prefix is None: prefix = 'channel'
+        l = int(lib.chkfile_helper.load(chkfile, f'{prefix}/l'))
+        exponents = np.asarray(
+            lib.chkfile_helper.load(chkfile, f'{prefix}/exponents'), dtype=float
+        )
+        kmax = int(lib.chkfile_helper.load(chkfile, f'{prefix}/kmax'))
+        return cls(l, exponents, kmax=kmax)
+
+
+def exponents_to_Legendre(exponents, kmax, amin=AMIN_MIN, amax=AMAX_MAX,
+                          clip_strength=AMINMAX_K):
+    ''' Fit Legendre parameters to primitive exponents.
+
+        Args:
+            exponents (array_like):
+                Nonempty primitive exponents.
+            kmax (int):
+                Maximum degree of Legendre polynomials.
+            amin/amax (float):
+                Lower and upper exponent bounds.
+            clip_strength (float):
+                Soft-clipping strength for the exponent bounds.
+
+        Return:
+            n (int):
+                Number of exponents.
+            Ak (np.ndarray):
+                `min(n, kmax+1)` linear combination coefficients.
+    '''
+    from numbers import Integral
+    if not isinstance(kmax, Integral):
+        raise TypeError('kmax must be an integer.')
+    elif kmax < 0:
+        raise ValueError('kmax must be nonnegative.')
+
+    exponents = np.asarray(exponents, dtype=float)
+    if exponents.ndim != 1:
+        raise ValueError('Exponents must be a one-dimensional array.')
+    n = len(exponents)
+    if n <= 0:
+        raise ValueError('Exponents must be nonempty.')
+    if np.any(~np.isfinite(exponents)) or np.any(exponents <= 0.):
+        raise ValueError('Exponents must be finite and strictly positive.')
+
+    degree = min(int(kmax), n-1)
+    x = _legendre_grid(n)
+    exponents = np.sort(exponents)[::-1]
+    log_exponents = lib.inverse_soft_log_clip(
+        exponents, amin, amax, clip_strength
+    )
+    Ak = np.polynomial.legendre.legfit(x, log_exponents, degree)
+
+    return n, Ak
+
+
+def Legendre_to_exponents(n, Ak, amin=AMIN_MIN, amax=AMAX_MAX,
+                          clip_strength=AMINMAX_K):
+    ''' Generate primitive exponents from Legendre parameters.
+
+        Args:
+            n (int):
+                Number of exponents.
+            Ak (array_like):
+                Legendre coefficients.
+            amin/amax (float):
+                Lower and upper exponent bounds.
+            clip_strength (float):
+                Soft-clipping strength for the exponent bounds.
+
+        Return:
+            exponents (ndarray):
+                Legendre exponents in ascending order.
+    '''
+    from numbers import Integral
+    if not isinstance(n, Integral):
+        raise TypeError('n must be an integer.')
+    elif n < 1:
+        raise ValueError('n must be positive.')
+
+    Ak = np.asarray(Ak, dtype=float)
+    if Ak.ndim != 1 or Ak.size == 0:
+        raise ValueError('Ak must be a nonempty one-dimensional array.')
+    if Ak.size > n:
+        raise ValueError('The number of Legendre coefficients cannot exceed n.')
+    if np.any(~np.isfinite(Ak)):
+        raise ValueError('Legendre coefficients must be finite.')
+
+    x = _legendre_grid(n)
+    log_exponents = np.polynomial.legendre.legval(x, Ak)
+    exponents = lib.soft_log_clip(log_exponents, amin, amax, clip_strength)
+    return np.sort(exponents)
+
+
+def _legendre_grid(n):
+    ''' Return the primitive-index grid mapped to [-1, 1]. '''
+    if n == 1:
+        return np.asarray([0.])
+    return np.linspace(-1., 1., n)
 
 
 if __name__ == '__main__':
