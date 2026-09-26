@@ -708,6 +708,67 @@ class BasisSpec(lib.StreamObject):
         self._check_channel_idx(channel_idx)
         self.channels[channel_idx] = channel
 
+    def _resize_one_candidates_legendre(self, channel_idx, nprim_new):
+        ''' Return one-step resize candidates through a Legendre representation.
+
+            Args:
+                channel_idx (int):
+                    Index of the channel to resize.
+                nprim_new (int):
+                    Number of exponents in the candidate channels. It must differ
+                    from the current number by exactly one.
+
+            Return:
+                specs (list of BasisSpec):
+                    Candidate basis specifications. Candidate channels are converted
+                    back to the original channel type.
+        '''
+        self._check_channel_idx(channel_idx)
+
+        channel = self.channels[channel_idx]
+        candidates = channel.convert_to('legendre')._resize_one_candidates(nprim_new)
+        if channel.channel_type != 'legendre':
+            candidates = [c.convert_to(channel.channel_type) for c in candidates]
+
+        return [self.replace_channel(channel_idx, c) for c in candidates]
+
+    def add_one_exponent_candidates_legendre(self, channel_idx):
+        ''' Return candidates with one exponent added through a Legendre representation.
+
+            Args:
+                channel_idx (int):
+                    Index of the channel to expand.
+
+            Return:
+                specs (list of BasisSpec):
+                    Candidate basis specifications. Candidate channels are converted
+                    back to the original channel type.
+        '''
+        self._check_channel_idx(channel_idx)
+
+        nprim_new = self.channels[channel_idx].nexponent + 1
+        return self._resize_one_candidates_legendre(channel_idx, nprim_new)
+
+    def remove_one_exponent_candidates_legendre(self, channel_idx):
+        ''' Return candidates with one exponent removed through a Legendre representation.
+
+            Args:
+                channel_idx (int):
+                    Index of the channel to reduce.
+
+            Return:
+                specs (list of BasisSpec):
+                    Candidate basis specifications. Candidate channels are converted
+                    back to the original channel type.
+        '''
+        self._check_channel_idx(channel_idx)
+
+        nprim = self.channels[channel_idx].nexponent
+        if nprim == 0:
+            return []
+
+        return self._resize_one_candidates_legendre(channel_idx, nprim-1)
+
     def add_one_exponent_candidates(self, channel_idx, upscale=1.2, downscale=0.8, emin=0.01):
         ''' Return candidate BasisSpec objects with one exponent added.
 
