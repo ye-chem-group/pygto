@@ -3,7 +3,7 @@ from .atomic_scf import atomic_scf_with_pure_l_config_
 
 
 def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, keep_l=None,
-                  keep_channel=None, config=None):
+                  keep_channel=None, config=None, basis_fix=None):
     ''' Construct an atomic electronic-structure cost function.
 
         Args:
@@ -56,6 +56,8 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
     def cost_func(spec, full_output=False):
         ''' Evaluate the electronic-structure cost for a BasisSpec. '''
         basis = spec.get_pyscf_basis(keep_l=keep_l, keep_channel=keep_channel)
+        if basis_fix is not None:
+            basis = basis + basis_fix
         mol = get_mol(basis)
         mf = HF(mol)
         if config is not None:
@@ -82,7 +84,8 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
 
 
 def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
-                         corr=True, corr_settings=None, gamma_vjk=0.1):
+                         corr=True, corr_settings=None, gamma_vjk=0.1,
+                         auxbasis_fix=None):
     ''' Construct a cost function for auxiliary-basis optimization.
 
         The returned `:func:cost_func` has the following signature:
@@ -174,6 +177,8 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
     def cost_func(spec, full_output=False):
         ''' Evaluate density-fitting errors for an auxiliary BasisSpec. '''
         auxbasis = spec.get_pyscf_basis()
+        if auxbasis_fix is not None:
+            auxbasis = auxbasis + auxbasis_fix
         mf = HF(mol).density_fit(auxbasis)
         if config is not None:
             atomic_scf_with_pure_l_config_(mf, config)
