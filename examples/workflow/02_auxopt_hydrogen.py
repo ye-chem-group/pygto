@@ -70,7 +70,7 @@ if __name__ == '__main__':
         of `1e-5`.
     '''
     spec = spec_init.copy()
-    opt = AuxOpt(spec, cost_func).set(verbose=5)
+    opt = AuxOpt(spec, cost_func, ftol=1e-5).set(verbose=5)
     opt.kernel()
     cost['opt'] = (opt.cost, opt.cost_details)
 
