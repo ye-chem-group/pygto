@@ -1,19 +1,21 @@
 import numpy as np
 
 from pygto import lib
-from pygto.optimizer import ScheduledOptimizer
-from pygto.workflow import TCAO
+from pygto.optimizer import ScheduledOptimizer, Optimizer
+from pygto.basis import Legendre
 
 
-class AuxiliaryBasisOptimization(TCAO):
+class AuxiliaryBasisOptimizationLegendre(lib.StreamObject):
     ''' Optimize and reduce an auxiliary basis against a target error.
 
         Args:
             spec (BasisSpec):
                 Initial auxiliary-basis specification.
             cost_func (callable):
-                Function returning an error, or `(error, error_vector)` when called
-                with a true full-output flag.
+                Function returning a scalar cost. When called with its full-output
+                flag enabled, it must return `(cost, cost_details)`, where
+                `cost_details` is an iterable of `(name, error, scaled_error)`
+                tuples.
             ftol (float):
                 Target error tolerance. Default is `1e-5`.
             verbose (int):
@@ -23,15 +25,65 @@ class AuxiliaryBasisOptimization(TCAO):
             init_ftol_rescaling (float):
                 Factor applied to `ftol` when constructing the initial auxiliary
                 basis. Default is 0.5.
+            legendre_kmax (int):
+                Maximum degree of Legendre polynomials. Default is 5.
+            max_expand_cycle (int):
+                Maximum number of initial-basis expansion cycles. Expansion is
+                triggered when the optimized input basis does not reach
+                `init_ftol_rescaling * ftol`; each cycle adds one primitive to
+                every existing channel and reoptimizes the basis. Default is 5.
+            add_high_l_freq (int):
+                Frequency, in initial-basis expansion cycles, at which a new
+                channel with higher angular momentum is added if the expanded
+                basis still exceeds the target error. Default is 3.
+            verbose_optimizer (int):
+                Logging verbosity used for each individual basis optimization.
+                If None, it is set to `max(2, self.verbose - 3)`. Default is None.
     '''
-
     def __init__(self, spec, cost_func, ftol=1e-5, verbose=None):
-        TCAO.__init__(self, spec, cost_func, ftol, verbose)
+        if not all([isinstance(c, Legendre) for c in spec.channels]):
+            spec.log_warn('Converting channel type to Legendre')
+            spec.convert_to_('legendre')
 
+        if len(spec.angular_momenta) != spec.nchannel:
+            raise NotImplementedError
+
+        if abs(np.asarray(spec.angular_momenta) - np.arange(spec.nchannel)).max() > 0.1:
+            raise NotImplementedError
+
+        self.spec = spec
+        self.cost_func = cost_func
+        self.ftol = ftol
+        if verbose is not None: self.verbose = verbose
+
+        self.chkfile = None
+
+        # attribute with default
         self.init_ftol_rescaling = 0.5
+        self.legendre_kmax = 5
+        self.max_expand_cycle = 5
+        self.add_high_l_freq = 3
+        self.verbose_optimizer = None
+
+        # attribute set by kernel
+        self.cost = None
+        self.cost_details = None
+
+    def dump_flags(self):
+        ''' Log AuxOpt settings. '''
+        self.log_info('\n')
+        self.log_info('******** %s ********' % (self.__class__.__name__))
+        self.log_info('ftol= %.10g' % self.ftol)
+        self.log_info('init_ftol_rescaling= %.10g' % self.init_ftol_rescaling)
+        self.log_info('legendre_kmax= %d' % self.legendre_kmax)
+        self.log_info('max_expand_cycle= %d' % self.max_expand_cycle)
+        self.log_info('add_high_l_freq= %d' % self.add_high_l_freq)
+        self.log_info('verbose_optimizer= %s' % (str(self.verbose_optimizer)))
+        self.log_info('chkfile= %s' % (str(self.chkfile)))
+        self.log_info('')
 
     def cost_func_full(self, spec):
-        ''' Evaluate the auxiliary-basis error and component vector.
+        ''' Evaluate the auxiliary-basis cost and its individual components.
 
             Args:
                 spec (BasisSpec):
@@ -39,123 +91,72 @@ class AuxiliaryBasisOptimization(TCAO):
 
             Return:
                 cost (float):
-                    Scalar auxiliary-basis error.
-                cost_vec (ndarray):
-                    Error components.
+                    Scalar auxiliary-basis cost.
+                cost_details (list of tuple):
+                    Component names, raw errors, and scaled errors as
+                    `(name, error, scaled_error)` tuples.
         '''
         return self.cost_func(spec, True)
 
     def initialize(self):
         ''' Optimize and, when needed, expand the initial auxiliary basis. '''
         spec = self.spec.copy()
-        self.cost_init, spec = self.optimize_candidate(spec)
-        self.cost_vec = self.cost_func_full(spec)[1]
-        self.cost = self.cost_init
+
+        self.log_note('Input basis:')
+        if self.verbose >= 3:
+            spec.dump_basis(stdout=self.stdout)
+        self.print_cost('Input', spec, *self.cost_func_full(spec))
+
+        self.log_info('Optimizing input basis...')
+        spec = self.optimize_candidate(spec)[1]
+        self.cost, self.cost_details = self.cost_func_full(spec)
+        self.log_note('Input+Opt basis:')
+        if self.verbose >= 3:
+            spec.dump_basis(stdout=self.stdout)
+        self.print_cost('Input+Opt', spec, self.cost, self.cost_details)
 
         ftol = self.ftol * self.init_ftol_rescaling
 
-        if self.cost_init > ftol:
-            self.log_info('Enter AuxBasExpansion cycle cost= %.3e  structure= %s' % (
-                self.cost, spec.structure), indent=1)
-            self.log_debug('costvec= %s' % (
-                ' '.join(['%.3e'%x for x in self.cost_vec])), indent=2)
-            stages = (
-                (1, False),
-                (2, False),
-                (3, False),
-                (1, True),
-                (2, True),
-                (3, True),
-            )
-            found = False
-            for repeat, add_high_l in stages:
-                spec1 = increase_basis_size(spec, repeat, add_high_l)
-                cost, spec1 = self.optimize_candidate(spec1)
-                cost_vec = self.cost_func_full(spec1)[1]
+        if self.cost > ftol:
+            cost = self.cost
+            cost_details = self.cost_details
+            self.print_cost('Entering AuxBasExpansion', spec, cost, self.cost_details)
 
-                self.log_info('repeat= %d  add_high_l= %s  cost= %.3e  structure= %s' % (
-                    repeat, str(add_high_l), cost, spec1.structure), indent=2)
-                self.log_debug('costvec= %s' % (
-                    ' '.join(['%.3e'%x for x in cost_vec])), indent=3)
+            found = False
+            for cycle in range(1,self.max_expand_cycle+1):
+                spec = increase_basis_size(spec)
+                cost, spec = self.optimize_candidate(spec)
+                cost_details = self.cost_func_full(spec)[1]
+
+                self.print_cost('cycle= %d' % (cycle), spec, cost, cost_details)
 
                 if cost < ftol:
                     found = True
-                    spec = spec1
                     break
 
-            self.log_info('Leaving AuxBasExpansion cycle cost= %.3e  structure= %s' % (
-                cost, spec.structure), indent=1)
-            self.log_info('costvec= %s' % (
-                ' '.join(['%.3e'%x for x in cost_vec])), indent=2)
-            self.log_info('')
+                if cycle % self.add_high_l_freq == 0:
+                    spec = add_high_l(spec)
+                    cost, spec = self.optimize_candidate(spec)
+                    cost_details = self.cost_func_full(spec)[1]
 
-            if not found:
+                    self.print_cost('cycle= %d' % (cycle), spec, cost, cost_details)
+
+                    if cost < ftol:
+                        found = True
+                        break
+
+
+            if found:
+                self.print_cost('Leaving AuxBasExpansion', spec, cost, cost_details)
+            else:
                 self.log_error('Failed to generate an init basis with the desired ftol %.3e' % (
                     ftol))
                 raise RuntimeError
 
-            self.cost = self.cost_init = cost
-            self.cost_vec = cost_vec
+            self.cost = cost
+            self.cost_details = cost_details
 
         self.spec.channels = spec.channels
-
-    def filter_rigid(self, spec, ftol=None, select_channel=None, cost_init=None):
-        ''' Remove exponents without reoptimization and report error components.
-
-            Args:
-                spec (BasisSpec):
-                    Basis specification to filter.
-                ftol (float):
-                    Acceptance tolerance. Default is None, which uses `self.ftol`.
-                select_channel (int or list of int):
-                    Channels eligible for filtering. Default is None.
-                cost_init (float):
-                    Reference cost. Default is None, which uses zero.
-
-            Return:
-                cost (float):
-                    Filtered-basis error.
-                cost_vec (ndarray):
-                    Error components.
-                spec (BasisSpec):
-                    Filtered basis specification.
-                nochange (bool):
-                    Whether no candidate was accepted.
-        '''
-        if cost_init is None: cost_init = 0
-        cost, spec, nochange = TCAO.filter_rigid(self, spec, ftol, select_channel, cost_init)
-        cost_vec = self.cost_func_full(spec)[1]
-        return cost, cost_vec, spec, nochange
-
-    def filter_optimization(self, spec, select_channel=None, cost_init=None, force_accept=False):
-        ''' Remove and reoptimize exponents while reporting error components.
-
-            Args:
-                spec (BasisSpec):
-                    Basis specification to filter.
-                select_channel (int or list of int):
-                    Channels eligible for filtering. Default is None.
-                cost_init (float):
-                    Reference cost. Default is None, which uses zero.
-                force_accept (bool):
-                    Whether to accept the best candidate even above tolerance. Default
-                    is False.
-
-            Return:
-                cost (float):
-                    Filtered-basis error.
-                cost_vec (ndarray):
-                    Error components.
-                spec (BasisSpec):
-                    Filtered and optimized basis specification.
-                nochange (bool):
-                    Whether no candidate was accepted.
-        '''
-        if cost_init is None: cost_init = 0
-        cost, spec, nochange = TCAO.filter_optimization(self, spec, select_channel, cost_init,
-                                                        force_accept)
-        cost_vec = self.cost_func_full(spec)[1]
-        return cost, cost_vec, spec, nochange
 
     def optimize_candidate(self, spec, cost_func=None, active_channel=None, verbose=None):
         ''' Optimize a candidate auxiliary basis with a fixed schedule.
@@ -211,9 +212,10 @@ class AuxiliaryBasisOptimization(TCAO):
 
             Return:
                 cost (float):
-                    Final scalar error.
-                cost_vec (ndarray):
-                    Final error components.
+                    Final scalar cost.
+                cost_details (list of tuple):
+                    Final component names, raw errors, and scaled errors as
+                    `(name, error, scaled_error)` tuples.
                 spec (BasisSpec):
                     Optimized auxiliary basis.
         '''
@@ -223,35 +225,80 @@ class AuxiliaryBasisOptimization(TCAO):
         self.initialize()
         self.print_init()
 
+        kmax = self.legendre_kmax
+        ftol = self.ftol
+
         spec = self.spec.copy()
 
-        self.converged = False
-        for cycle in range(1, self.max_cycle+1):
+        ls = spec.angular_momenta
+        for il,l_act in enumerate(ls[::-1]):
 
-            self.cost, self.cost_vec, spec, nochange = self.filter_optimization(spec)
+            cost, cost_details = self.cost_func_full(spec)
+            self.print_cost('Entering Channel l= %d'%(l_act), spec, cost, cost_details)
 
-            self.print_step(cycle, spec)
+            nochange = True
+            Ak = spec.channels[l_act].Ak
+            while True:
+                spec_cand = spec.copy()
+                nprim = spec_cand.channels[l_act].nexponent-1
+                if nprim == 0:
+                    spec_cand.channels = [c for c in spec_cand.channels if c.l != l_act]
+                    cost_cand = self.cost_func(spec_cand)
+                else:
+                    if Ak.size > nprim:
+                        Ak = Ak[:nprim]
+                    spec_cand.channels[l_act] = Legendre.init_from_legendre_params(
+                        l_act, nprim, Ak, kmax
+                    )
+                    cost_cand, spec_cand = self.optimize_candidate(spec_cand, active_channel=l_act)
+
+                reject = False
+                if cost_cand < ftol:
+                    spec = spec_cand
+                    if nprim > 0: Ak = spec_cand.channels[l_act].Ak
+                    nochange = False
+                    status = 'accepted'
+                else:
+                    status = 'rejected'
+                    reject = True
+
+                self.log_info('l= %d  nprim= %d  cost= %.3e  status= %s' % (
+                    l_act, nprim, cost_cand, status), indent=1)
+
+                if reject or nprim == 0:
+                    break
+
+            if not nochange and il < len(ls)-1:
+                # do one full optimization
+                spec = self.optimize_candidate(spec)[1]
+
+            self.cost, self.cost_details = self.cost_func_full(spec)
+            self.log_debug('')
+            self.print_cost('Leaving Channel l= %d'%(l_act), spec)
+
             self.dump_chkfile(spec)
 
-            if nochange:
-                self.converged = True
-                break
-
-        for i,c in enumerate(spec.channels):
-            self.spec.replace_channel_(i, c)
+        self.spec.channels = spec.channels
 
         self.print_final()
 
-        return self.cost, self.cost_vec, self.spec
+        return self.cost, self.cost_details, self.spec
+
+    def print_cost(self, prefix, spec, cost=None, cost_details=None):
+        if cost is None: cost = self.cost
+        if cost_details is None: cost_details = self.cost_details
+        self.log_note('%s cost= %.3e  structure= %s  nauxao= %d' % (
+            prefix, cost, spec.structure, spec.nao))
+        for name,err,scaled_err in cost_details:
+            self.log_debug('%15s= %.3e  scaled= %.3e' % (name.ljust(15),err,scaled_err), indent=1)
+        self.log_debug('')
 
     def print_init(self):
         ''' Log the initial auxiliary basis and error components. '''
         self.log_note('Init basis:')
         if self.verbose >= 3:
             self.spec.dump_basis(stdout=self.stdout)
-        self.log_note('Init cost= %.3e  structure= %s' % (self.cost_init, self.spec.structure))
-        self.log_note('costvec= %s' % (' '.join(['%.3e'%x for x in self.cost_vec])), indent=1)
-        self.log_debug('')
+        self.print_cost('Init', self.spec)
 
     def print_step(self, cycle, spec):
         ''' Log one auxiliary-basis reduction cycle.
@@ -262,88 +309,367 @@ class AuxiliaryBasisOptimization(TCAO):
                 spec (BasisSpec):
                     Current basis specification.
         '''
-        self.log_info('AuxOpt cycle= %d  cost= %.3e  structure= %s' % (
-            cycle, self.cost, spec.structure))
-        self.log_info('costvec= %s' % (' '.join(['%.3e'%x for x in self.cost_vec])), indent=1)
-        self.log_debug('')
+        self.print_cost('AuxOpt cycle= %d'%cycle, spec)
 
     def print_final(self):
         ''' Log the final auxiliary basis and error components. '''
-        self.log_note('Final cost= %.3e  structure= %s' % (
-            self.cost, self.spec.structure))
-        self.log_note('costvec= %s' % (' '.join(['%.3e'%x for x in self.cost_vec])), indent=1)
+        self.print_cost('Final', self.spec)
         self.log_note('Final basis:')
         if self.verbose >= 3:
             self.spec.dump_basis(stdout=self.stdout)
         self.log_note('')
 
+    dump_chkfile = Optimizer.dump_chkfile
 
-def increase_basis_size(spec, repeat, add_high_l):
-    ''' Expand every channel and optionally add a higher-angular-momentum channel.
 
-        Args:
-            spec (BasisSpec):
-                Basis specification with one channel for each consecutive angular
-                momentum starting from zero.
-            repeat (int):
-                Number of tight-exponent additions per channel.
-            add_high_l (bool):
-                Whether to add the next angular momentum. It receives `repeat`
-                tight-exponent additions.
+AuxOpt = AuxOptLegendre = AuxiliaryBasisOptimizationLegendre
 
-        Return:
-            spec (BasisSpec):
-                Expanded copy, or the input object when no expansion is requested.
-    '''
+
+def expand_channel_candidates(spec, l, kmax):
+    from pygto.basis import BasisSpec
+
+    nprim = spec.channels[l].nexponent
+    nprim_new = nprim+1
+    Ak = spec.channels[l].Ak.copy()
+    atm = spec.atm
+
+    if nprim == 1:
+        a0 = spec.channels[l].exponents[0]
+        beta = 3.
+        c1 = BasisSpec.init_from_etb_params(
+            [(l, nprim_new, a0, beta)], atm=atm
+        ).convert_to('legendre').channels[0]
+        c2 = BasisSpec.init_from_etb_params(
+            [(l, nprim_new, a0/beta**0.5, beta)], atm=atm
+        ).convert_to('legendre').channels[0]
+    else:
+        c1 = BasisSpec.init_from_legendre_params(
+            [(l, nprim_new, Ak, kmax)], atm=atm
+        ).channels[0]
+        Ak[1] *= (nprim_new/nprim)**0.5
+        c2 = BasisSpec.init_from_legendre_params(
+            [(l, nprim_new, Ak, kmax)], atm=atm
+        ).channels[0]
+
+    return [
+        spec.replace_channel(l, c) for c in [c1, c2]
+    ]
+
+def increase_basis_size(spec):
     if len(spec.angular_momenta) != spec.nchannel:
         raise NotImplementedError
 
     if abs(np.asarray(spec.angular_momenta) - np.arange(spec.nchannel)).max() > 0.1:
         raise NotImplementedError
 
-    if repeat == 0 and not add_high_l:
-        return spec
+    def expand_channel(i):
+        spec_cands = spec.add_one_exponent_candidates_legendre(i)
+        if len(spec_cands) == 1:
+            spec_cand = spec_cands[0]
+        else:
+            spec_cand = spec_cands[1]
+        return spec_cand.channels[i]
 
-    channels = []
-    for channel in spec.channels:
-        c = channel.copy()
-        for i in range(repeat):
-            c = c.add_one_exponent_candidates()[1]
-        channels.append(c)
-
-    if add_high_l:
-        from pygto.basis import ETB
-        l = max(spec.angular_momenta)+1
-        c = ETB(l, [])
-        for i in range(repeat):
-            c = c.add_one_exponent_candidates()[1]
-        channels.append(c)
-
+    channels = [
+        expand_channel(i) for i in range(spec.nchannel)
+    ]
     return spec.with_channels(channels)
 
 
-AuxOpt = AuxiliaryBasisOptimization
+def add_high_l(spec):
+    if len(spec.angular_momenta) != spec.nchannel:
+        raise NotImplementedError
+
+    if abs(np.asarray(spec.angular_momenta) - np.arange(spec.nchannel)).max() > 0.1:
+        raise NotImplementedError
+
+    from pygto.basis import Legendre
+    l = max(spec.angular_momenta)+1
+    kmax = spec.channels[0].kmax
+    c = Legendre(l, [0.5]).set(kmax=kmax)
+
+    channels = spec.channels.copy() + [c]
+    return spec.with_channels(channels)
+
+
+def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
+                         corr=True, corr_settings=None, gamma_vjk=0.1, gamma_mp2=10,
+                         auxbasis_fix=None):
+    ''' Construct an auxiliary-basis cost function from HF and MP2 errors.
+
+        The reference calculation uses exact two-electron integrals. For each
+        candidate auxiliary basis, the returned function measures density-fitting
+        errors in the HF Coulomb and exchange matrices and their energy
+        contributions, all evaluated with the reference HF density. When
+        `corr=True`, it also measures the density-fitted MP2 correlation-energy
+        error and the same-spin and opposite-spin error metrics of Weigend et al.,
+        J. Chem. Phys. 116, 3175–3183 (2002), Eq. 5.
+
+        The returned function has the signatures
+
+            cost_func(spec) -> cost
+            cost_func(spec, full_output=True) -> cost, cost_details
+
+        The unscaled error components are
+
+            max(abs(vj - vj_ref))
+            max(abs(vk - vk_ref))
+            abs(ej - ej_ref)
+            abs(ek - ek_ref)
+            abs(emp2 - emp2_ref)
+            abs(de_ss / emp2_ss_ref)
+            abs(de_os / emp2_os_ref)
+
+        where `vj` and `vk` are the HF Coulomb and exchange matrices, `ej` and
+        `ek` are their energy contributions, `emp2` is the MP2 correlation
+        energy, and `de_ss` and `de_os` are the same-spin and opposite-spin
+        Weigend error metrics, reported as `t2ss err` and `t2os err`,
+        respectively. If a reference spin component of the MP2 correlation
+        energy is zero, its corresponding normalized error is set to zero. The
+        three MP2 components are omitted when `corr=False`.
+
+        The J/K matrix errors are multiplied by `gamma_vjk`, and the normalized
+        same-spin and opposite-spin metrics are multiplied by `gamma_mp2`. The
+        energy errors are not scaled. The scalar cost is the largest scaled
+        component. With `full_output=True`, `cost_details` contains
+        `(name, error, scaled_error)` for every component.
+
+        Args:
+            atm (str):
+                Atomic symbol.
+            aobasis (pyscf-recognizable basis format):
+                Orbital basis for which the auxiliary basis is optimized.
+            HF (class or callable):
+                HF(mol) -> mf
+            mol_settings (dict):
+                Settings for `mol` through `mol.set(**mol_settings)`. Default is None.
+            config (array_like):
+                Pure-angular-momentum electron configuration. Default is None.
+            corr (bool):
+                Whether to include the three MP2 error components. Default is
+                True.
+            corr_settings (dict):
+                Settings applied to MP2 object through `set`. Default is None.
+            gamma_vjk (float):
+                Scaling factor for the J/K matrix errors. Default is 0.1.
+            gamma_mp2 (float):
+                Scaling factor for the normalized same-spin and opposite-spin
+                Weigend error metrics. Default is 10.
+            auxbasis_fix (pyscf-recognizable basis format):
+                Fixed auxiliary functions appended to every candidate basis.
+                Default is None.
+
+        Note:
+            Relative to the unscaled energy errors, the default `gamma_vjk` places
+            a looser requirement on the J/K matrix errors, whereas the default
+            `gamma_mp2` places a tighter requirement on the normalized same-spin
+            and opposite-spin metrics.
+
+        Return:
+            cost_func (callable):
+                Function accepting an auxiliary `BasisSpec` and returning its
+                maximum scaled error. With `full_output=True`, it also returns
+                the component details described above.
+    '''
+
+    import inspect
+    from pyscf import mp, lib
+
+    if not (inspect.isclass(HF) or callable(HF)):
+        raise TypeError('HF must be a class or callable.')
+
+    def get_mol(basis):
+        ''' Build a PySCF molecule for orbital basis data. '''
+        from pyscf import gto
+        mol = gto.Mole()
+        mol.atom = atm
+        mol.basis = basis
+        mol.verbose = 0 # may be overwritten by `mol_settings`
+        if mol_settings is not None:
+            mol.set(**mol_settings)
+        mol.build()
+        return mol
+
+    # get reference
+    mol = get_mol(aobasis)
+    mf_ref = HF(mol)
+    if config is not None:
+        atomic_scf_with_pure_l_config_(mf_ref, config)
+    mf_ref.kernel()
+    dm_ref = mf_ref.make_rdm1()
+
+    def get_vjk_ejk(mf):
+        vj, vk = mf.get_jk(dm=dm_ref)
+        if dm_ref.ndim == 2:    # RHF
+            ej = np.einsum('ij,ji->', vj, dm_ref) * 0.5
+            ek = np.einsum('ij,ji->', vk, dm_ref) * 0.25
+        else:
+            vj = vj.sum(axis=0)
+            ej = np.einsum('ij,xji->', vj, dm_ref) * 0.5
+            ek = np.einsum('xij,xji->', vk, dm_ref) * 0.5
+        return vj, vk, ej, ek
+
+    vj_ref, vk_ref, ej_ref, ek_ref = get_vjk_ejk(mf_ref)
+
+    if corr:
+        mc_ref = mp.MP2(mf_ref)
+        if corr_settings is not None:
+            mc_ref.set(**corr_settings)
+        eris_ref = mc_ref.ao2mo()
+        mc_ref.kernel(eris=eris_ref)
+        ecorr_ref = mc_ref.e_corr
+        ecorr_ss_ref = mc_ref.e_corr_ss
+        ecorr_os_ref = mc_ref.e_corr_os
+
+    def cost_func(spec, full_output=False):
+        ''' Evaluate the density-fitting cost for an auxiliary `BasisSpec`.
+
+            Args:
+                spec (BasisSpec):
+                    Candidate auxiliary-basis specification.
+                full_output (bool):
+                    Whether to return component-level error details. Default is
+                    False.
+
+            Return:
+                cost (float):
+                    Maximum scaled error component.
+                cost_details (list of tuple):
+                    Returned only when `full_output=True`. Each tuple contains
+                    `(name, error, scaled_error)` for one component.
+        '''
+        auxbasis = spec.get_pyscf_basis()
+        if auxbasis_fix is not None:
+            auxbasis = auxbasis + auxbasis_fix
+        mf = HF(mol).density_fit(auxbasis)
+        if config is not None:
+            atomic_scf_with_pure_l_config_(mf, config)
+        mf.kernel()
+
+        vj, vk, ej, ek = get_vjk_ejk(mf)
+
+        error_name = ['vj err', 'vk err', 'ej err', 'ek err']
+        error_vector = np.asarray((
+            abs(vj-vj_ref).max(),
+            abs(vk-vk_ref).max(),
+            abs(ej-ej_ref),
+            abs(ek-ek_ref),
+        ))
+        scaled_error_vector = error_vector.copy()
+        scaled_error_vector[:2] *= gamma_vjk
+
+        if corr:
+            # Ref: J. Chem. Phys. 116, 3175 (2002)
+            mc = mp.MP2(mf_ref).density_fit(auxbasis=auxbasis)
+            if corr_settings is not None:
+                mc.set(**corr_settings)
+            eris = mc.ao2mo()
+            mc.kernel(eris=eris)
+            ecorr = mc.e_corr
+
+            if hasattr(eris_ref, 'OVOV'):   # UHF
+                moe = mc.split_mo_energy()
+
+                ovL, OVL = eris.ovL
+                dovov_list = (
+                    np.dot(ovL, ovL.T) - eris_ref.ovov,
+                    np.dot(ovL, OVL.T) - eris_ref.ovOV,
+                    np.dot(OVL, OVL.T) - eris_ref.OVOV,
+                )
+                # same spin
+                de_ss = 0
+                for s in [0,1]:
+                    s_ovov = 0 if s == 0 else 2
+                    nocc = eris.nocc[s]
+                    nvir = eris.nvir[s]
+                    dovov = dovov_list[s_ovov].reshape(nocc,nvir,nocc,nvir)
+                    moe_occ, moe_vir = moe[s][1:3]
+                    eia = (moe_occ[:,None] - moe_vir).reshape(-1)
+                    eiajb = (eia[:,None] + eia).reshape(*dovov.shape)
+                    de = lib.einsum('iajb,iajb->', abs(dovov-dovov.transpose(0,3,2,1)),
+                                    abs(dovov)/eiajb) * 0.5
+                    de_ss += de
+
+                # oppo spin
+                nocca, noccb = eris.nocc
+                nvira, nvirb = eris.nvir
+                dovov = dovov_list[1].reshape(nocca,nvira,noccb,nvirb)
+                moea_occ, moea_vir = moe[0][1:3]
+                moeb_occ, moeb_vir = moe[1][1:3]
+                eiaa = (moea_occ[:,None] - moea_vir).reshape(-1)
+                eiab = (moeb_occ[:,None] - moeb_vir).reshape(-1)
+                eiajb = (eiaa[:,None] + eiab).reshape(*dovov.shape)
+                de_os = lib.einsum('iajb,iajb->', abs(dovov), abs(dovov)/eiajb)
+            else:   # RHF
+                nocc, nvir = eris.nocc, eris.nvir
+                dovov = (np.dot(eris.ovL, eris.ovL.T) - eris_ref.ovov).reshape(nocc,nvir,nocc,nvir)
+                moe_occ, moe_vir = mc.split_mo_energy()[1:3]
+                eia = (moe_occ[:,None] - moe_vir).reshape(-1)
+                eiajb = (eia[:,None] + eia).reshape(*dovov.shape)
+                t2 = dovov/eiajb
+                de_ss = lib.einsum('iajb,iajb->', abs(dovov-dovov.transpose(0,3,2,1)), abs(t2))
+                de_os = lib.einsum('iajb,iajb->', abs(dovov), abs(t2))
+
+            error_name_corr = ['emp2 err', 't2ss err', 't2os err']
+            error_vector_corr = np.asarray((
+                abs(ecorr-ecorr_ref),
+                abs(de_ss/ecorr_ss_ref) if abs(ecorr_ss_ref) > 1e-10 else 0,
+                abs(de_os/ecorr_os_ref) if abs(ecorr_os_ref) > 1e-10 else 0,
+            ))
+            scaled_error_vector_corr = error_vector_corr.copy()
+            scaled_error_vector_corr[-2:] *= gamma_mp2
+
+            error_name += error_name_corr
+            error_vector = np.hstack((error_vector, error_vector_corr))
+            scaled_error_vector = np.hstack((scaled_error_vector, scaled_error_vector_corr))
+
+        error = max(scaled_error_vector)
+
+        if full_output:
+            error_details = [(name,err,serr) for name,err,serr in
+                             zip(error_name,error_vector,scaled_error_vector)]
+            return error, error_details
+        else:
+            return error
+
+    return cost_func
 
 
 if __name__ == '__main__':
-    from pyscf import gto, scf, df
     from pygto.basis import BasisSpec
-    from pygto.optimizer import ScheduledOptimizer
-
+    from pygto.lib import pyscf_helper
+    from pyscf import gto, df, scf
     atm = 'C'
     spin = 2
-    frozen = 1
-    val_l = [0,1]
     aobasis = 'cc-pvdz'
+    val_l = [0,1]
+    pol_l = [2]
+    frozen = 1
 
-    mol = gto.M(atom=atm, basis=aobasis, spin=spin)
-    auxbasis = df.autoaux(mol)[atm]
-    auxspec = BasisSpec.init_from_pyscf_basis(auxbasis, atm=atm, channel_type='etb')
-
-    cost_func = lib.pyscf_helper.get_cost_func_auxopt(
-        atm, aobasis, scf.UHF, mol_settings={'spin':spin},
+    cost_func = pyscf_helper.get_cost_func_auxopt(
+        atm, aobasis, scf.ROHF, mol_settings={'spin':spin},
         corr_settings={'frozen':frozen},
     )
 
-    opt = AuxOpt(auxspec, cost_func, ftol=1e-5).set(verbose=4)
+    ''' The following shows AuxOpt with different initial guesses:
+        1. PySCF's AutoAux basis
+        2. PySCF's ETB
+        3. Manually constructed ETB
+    '''
+    # auxbasis = df.autoaux(gto.M(atom=atm, basis=aobasis, spin=None))[atm]
+    # spec = BasisSpec.init_from_basis(auxbasis, atm)
+
+    # auxbasis = df.aug_etb(gto.M(atom=atm, basis=aobasis, spin=None))[atm]
+    # spec = BasisSpec.init_from_basis(auxbasis, atm)
+
+    spec = BasisSpec.init_from_etb_params(
+        [
+            (0, 6, 0.3, 5),
+            (1, 3, 0.3, 5),
+            (2, 2, 0.3, 5),
+            (3, 1, 0.3, 5),
+        ], atm=atm
+    )
+
+    opt = AuxOpt(spec, cost_func).set(verbose=5)
     opt.kernel()

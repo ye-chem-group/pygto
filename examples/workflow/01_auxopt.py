@@ -16,12 +16,17 @@ from pygto.data.elements import get_spin
 from pyscf import gto, scf, df
 
 
+def format_cost_vec(cost_details):
+    return ' '.join([
+        f'{scaled_error:.3e}'
+        for name, error, scaled_error in cost_details
+    ])
+
+
 if __name__ == '__main__':
     atm = 'N'
     spin = get_spin(atm)
     aobasis = 'cc-pvdz'
-    val_l = [0,1]
-    pol_l = [2]
     frozen = 1
 
     ''' Construct the auxiliary-basis cost function.
@@ -32,11 +37,15 @@ if __name__ == '__main__':
             HF Coulomb energy error,
             HF exchange energy error,
             MP2 correlation energy error,
-            MP2 T2 amplitudes error,
+            same-spin T2 error * gamma_mp2,
+            opposite-spin T2 error * gamma_mp2,
         )
 
-        The matrix-error terms have different units and scales from the energy-error
-        terms, so they are multiplied by `gamma_vjk`, whose default value is 0.1.
+        The matrix- and energy-error terms have different numerical scales. The
+        matrix errors are therefore multiplied by `gamma_vjk`, whose default value
+        is 0.1.
+        The normalized T2-error terms are multiplied by `gamma_mp2`, whose default
+        value is 10.
     '''
     cost_func = lib.pyscf_helper.get_cost_func_auxopt(
         atm, aobasis, scf.ROHF, mol_settings={'spin':spin},
@@ -44,18 +53,15 @@ if __name__ == '__main__':
     )
 
     cost = {}
-    ''' Generate an initial auxiliary basis with PySCF AutoAux and convert each channel
-        to an even-tempered representation.
+    ''' Generate an initial auxiliary basis with PySCF AutoAux.
 
         AutoAux supplies broad initial exponent ranges and angular-momentum coverage.
-        The ETB conversion substantially reduces the number of optimization parameters.
-        Although AuxOpt also supports fully independent exponents, the ETB form is much
-        faster to optimize and gives comparable accuracy.
+        AuxOpt converts each channel to a Legendre representation before optimization,
+        which reduces the number of independent parameters for large channels while
+        retaining a flexible exponent distribution.
     '''
     auxbasis = df.autoaux(gto.M(atom=atm, basis=aobasis, spin=None))[atm]
-    spec_init = BasisSpec.init_from_basis(auxbasis, atm,
-        channel_type='etb', # CONVERT TO ETB!!!
-    )
+    spec_init = BasisSpec.init_from_basis(auxbasis, atm)
     cost['init'] = cost_func(spec_init, True)
 
     ''' Optimize and reduce the initial auxiliary basis to the default target error
@@ -64,54 +70,54 @@ if __name__ == '__main__':
     spec = spec_init.copy()
     opt = AuxOpt(spec, cost_func).set(verbose=4)
     opt.kernel()
-    cost['opt'] = (opt.cost, opt.cost_vec)
+    cost['opt'] = (opt.cost, opt.cost_details)
 
     ''' Compare with the reference cc-pVDZ-JKFIT auxiliary basis.
 
         Reference output:
 
-            **** Atomic Accuracy ****
-            Init    AutoAux cost= 4.740e-05  cost_vec= 5.612e-06, 7.021e-06, 4.740e-05, 9.296e-06, 4.918e-06, 7.380e-06
-            Optimized   ETB cost= 7.900e-06  cost_vec= 7.308e-07, 7.726e-06, 7.900e-06, 7.038e-06, 5.431e-09, 3.967e-06
-            Reference JKFIT cost= 4.680e-05  cost_vec= 2.571e-06, 4.680e-05, 1.451e-05, 1.443e-05, 2.642e-06, 2.282e-05
+**** Atomic Accuracy ****
+Init AutoAux cost= 2.539e-05  cost_vec= 5.654e-06 7.021e-06 2.539e-05 9.296e-06 4.918e-06 8.233e-07 2.216e-10
+Opt Legendre cost= 9.254e-06  cost_vec= 4.494e-07 9.254e-06 2.248e-06 9.254e-06 8.411e-06 2.204e-06 1.155e-07
+Ref    JKFIT cost= 4.680e-05  cost_vec= 2.236e-06 4.680e-05 8.819e-06 1.443e-05 2.642e-06 1.147e-05 6.305e-06
 
-            **** AuxBasis Size ****
-            Init    AutoAux nauxao= 110  structure= 13s,11p,10d,2f
-            Optimized   ETB nauxao=  69  structure= 12s,6p,5d,2f
-            Reference JKFIT nauxao=  70  structure= 10s,7p,5d,2f
+**** AuxBasis Size ****
+Init AutoAux nauxao= 110  structure= 13s,11p,10d,2f
+Opt Legendre nauxao=  62  structure= 13s,5p,4d,2f
+Ref    JKFIT nauxao=  70  structure= 10s,7p,5d,2f
 
-            **** Molecular Accuracy ****
-            Init    AutoAux cost= 1.289e-04  cost_vec= 1.385e-06, 4.183e-05, 2.204e-05, 1.289e-04, 5.517e-05, 9.586e-05
-            Optimized   ETB cost= 1.578e-04  cost_vec= 1.331e-06, 4.666e-05, 9.344e-06, 1.578e-04, 5.466e-05, 8.623e-05
-            Reference JKFIT cost= 1.733e-04  cost_vec= 2.534e-06, 5.629e-05, 1.959e-05, 1.733e-04, 2.011e-05, 1.151e-04
+**** Molecular Accuracy ****
+Init AutoAux cost= 2.579e-04  cost_vec= 5.542e-06 8.365e-05 4.407e-05 2.579e-04 1.103e-04 1.134e-04 4.336e-05
+Opt Legendre cost= 3.603e-04  cost_vec= 7.502e-06 9.683e-05 1.310e-05 3.603e-04 9.700e-05 1.120e-04 5.063e-05
+Ref    JKFIT cost= 3.465e-04  cost_vec= 1.014e-05 1.126e-04 3.918e-05 3.465e-04 4.022e-05 1.375e-04 6.099e-05
 
-        The optimized ETB and reference cc-pVDZ-JKFIT bases have comparable sizes and
-        atomic errors. The unoptimized AutoAux basis gives similar accuracy but uses
+        The optimized aux basis and reference cc-pVDZ-JKFIT bases have comparable sizes
+        and atomic errors. The unoptimized AutoAux basis gives similar accuracy but uses
         substantially more auxiliary functions.
     '''
     spec_ref = BasisSpec.init_from_basis(f'{aobasis}-jkfit', atm)
     cost['ref'] = cost_func(spec_ref, True)
 
     spec.log_note('**** Atomic Accuracy ****')
-    spec.log_note('Init    AutoAux cost= %.3e  cost_vec= %s' % (
-        cost['init'][0], ', '.join([f'{x:.3e}' for x in cost['init'][1]])
-    ))
-    spec.log_note('Optimized   ETB cost= %.3e  cost_vec= %s' % (
-        cost['opt'][0], ', '.join([f'{x:.3e}' for x in cost['opt'][1]])
-    ))
-    spec.log_note('Reference JKFIT cost= %.3e  cost_vec= %s' % (
-        cost['ref'][0], ', '.join([f'{x:.3e}' for x in cost['ref'][1]])
-    ))
+    spec.log_note('Init AutoAux cost= %.3e  cost_vec= %s' % (
+        cost['init'][0], format_cost_vec(cost['init'][1]))
+    )
+    spec.log_note('Opt Legendre cost= %.3e  cost_vec= %s' % (
+        cost['opt'][0], format_cost_vec(cost['opt'][1]))
+    )
+    spec.log_note('Ref    JKFIT cost= %.3e  cost_vec= %s' % (
+        cost['ref'][0], format_cost_vec(cost['ref'][1]))
+    )
     spec.log_note('')
 
     spec.log_note('**** AuxBasis Size ****')
-    spec.log_note('Init    AutoAux nauxao= %3d  structure= %s' % (
+    spec.log_note('Init AutoAux nauxao= %3d  structure= %s' % (
         spec_init.nao, spec_init.structure
     ))
-    spec.log_note('Optimized   ETB nauxao= %3d  structure= %s' % (
+    spec.log_note('Opt Legendre nauxao= %3d  structure= %s' % (
         spec.nao, spec.structure
     ))
-    spec.log_note('Reference JKFIT nauxao= %3d  structure= %s' % (
+    spec.log_note('Ref    JKFIT nauxao= %3d  structure= %s' % (
         spec_ref.nao, spec_ref.structure
     ))
     spec.log_note('')
@@ -127,13 +133,16 @@ if __name__ == '__main__':
         atom, aobasis, scf.ROHF, mol_settings={'spin':0},
         corr_settings={'frozen':frozen*2},
     )
-    cost, cost_vec = cost_func_mol(spec_init, True)
-    spec.log_note('Init    AutoAux cost= %.3e  cost_vec= %s' % (
-        cost*0.5, ', '.join([f'{x*0.5:.3e}' for x in cost_vec])))
-    cost, cost_vec = cost_func_mol(spec, True)
-    spec.log_note('Optimized   ETB cost= %.3e  cost_vec= %s' % (
-        cost*0.5, ', '.join([f'{x*0.5:.3e}' for x in cost_vec])))
-    cost, cost_vec = cost_func_mol(spec_ref, True)
-    spec.log_note('Reference JKFIT cost= %.3e  cost_vec= %s' % (
-        cost*0.5, ', '.join([f'{x*0.5:.3e}' for x in cost_vec])))
+    cost_mol, cost_details = cost_func_mol(spec_init, True)
+    spec.log_note('Init AutoAux cost= %.3e  cost_vec= %s' % (
+        cost_mol, format_cost_vec(cost_details))
+    )
+    cost_mol, cost_details = cost_func_mol(spec, True)
+    spec.log_note('Opt Legendre cost= %.3e  cost_vec= %s' % (
+        cost_mol, format_cost_vec(cost_details))
+    )
+    cost_mol, cost_details = cost_func_mol(spec_ref, True)
+    spec.log_note('Ref    JKFIT cost= %.3e  cost_vec= %s' % (
+        cost_mol, format_cost_vec(cost_details))
+    )
     spec.log_note('')
