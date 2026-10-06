@@ -63,7 +63,7 @@ class Optimizer(lib.StreamObject):
         # Attributes for optimization control
         self.accuracy = 'medium'    # this sets ftol, xtol, and gtol
 
-        self.ratio_min = getattr(__config__, 'optimizer_ratio_min', 1.7)
+        self.ratio_min = getattr(__config__, 'optimizer_ratio_min', 1.5)
         self.ratio_penalty_strength = getattr(
             __config__, 'optimizer_ratio_penalty_strength', 10.     # Hartree
         )
