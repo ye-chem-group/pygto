@@ -85,7 +85,8 @@ def get_cost_func(atm, HF, mol_settings=None, CORR=None, corr_settings=None, kee
 
 def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
                          corr=True, corr_settings=None, gamma_vjk=0.1, gamma_mp2=10,
-                         auxbasis_fix=None):
+                         auxbasis_fix=None, min_exp_penalty=True,
+                         min_exp_penalty_ratio=0.45, min_exp_penalty_strength=10):
     ''' Construct an auxiliary-basis cost function from HF and MP2 errors.
 
         The reference calculation uses exact two-electron integrals. For each
@@ -121,9 +122,12 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
 
         The J/K matrix errors are multiplied by `gamma_vjk`, and the normalized
         same-spin and opposite-spin metrics are multiplied by `gamma_mp2`. The
-        energy errors are not scaled. The scalar cost is the largest scaled
-        component. With `full_output=True`, `cost_details` contains
-        `(name, error, scaled_error)` for every component.
+        energy errors are not scaled. The density-fitting cost is the largest
+        scaled component. When `min_exp_penalty=True`, a smooth minimum-exponent
+        penalty is added to this value as described below. With
+        `full_output=True`, `cost_details` contains
+        `(name, error, scaled_error)` for every density-fitting component. When
+        enabled, the minimum-exponent penalty is included as `min-exp penalty`.
 
         Args:
             atm (str):
@@ -149,6 +153,39 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
             auxbasis_fix (pyscf-recognizable basis format):
                 Fixed auxiliary functions appended to every candidate basis.
                 Default is None.
+            min_exp_penalty (bool):
+                Whether to add a smooth penalty for auxiliary channels whose
+                minimum exponents are too diffuse. Default is True.
+            min_exp_penalty_ratio (float):
+                Minimum desired ratio between an auxiliary exponent and the
+                corresponding sum of AO exponents, as defined below. Default is
+                0.45.
+            min_exp_penalty_strength (float):
+                Strength of the minimum-exponent penalty. Default is 10.
+
+                Specifically, let `amin[l]` be the minimum AO exponent of angular
+                momentum `l`, and define
+
+                    asum[L] = min_{l1,l2 -> L} (amin[l1] + amin[l2])
+                    r[L] = auxmin[L] / asum[L]
+
+                where `l1,l2 -> L` denotes the AO-product selection rules
+
+                    abs(l1-l2) <= L <= l1+l2
+                    l1+l2+L is even,
+
+                and `auxmin[L]` is the minimum exponent in auxiliary channel `L`.
+                Auxiliary channels for which `asum[L]` is undefined are omitted.
+                For `rmin = min_exp_penalty_ratio` and a fixed smoothing width
+                `w = 1e-2`, the penalty is
+
+                    d[L] = log(rmin) - log(r[L])
+                    s[L] = w * softplus(d[L] / w)
+                    penalty = min_exp_penalty_strength * sum_L s[L]**2
+
+                The returned scalar cost is
+
+                    cost = max(scaled_error_components) + penalty
 
         Note:
             Relative to the unscaled energy errors, the default `gamma_vjk` places
@@ -158,9 +195,9 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
 
         Return:
             cost_func (callable):
-                Function accepting an auxiliary `BasisSpec` and returning its
-                maximum scaled error. With `full_output=True`, it also returns
-                the component details described above.
+                Function accepting an auxiliary `BasisSpec` and returning the
+                objective defined above. With `full_output=True`, it also returns
+                the density-fitting component details described above.
     '''
 
     import inspect
@@ -168,6 +205,10 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
 
     if not (inspect.isclass(HF) or callable(HF)):
         raise TypeError('HF must be a class or callable.')
+
+    if min_exp_penalty_ratio <= 0 or min_exp_penalty_strength < 0:
+        raise ValueError('min_exp_penalty_ratio must be positive and '
+                         'min_exp_penalty_strength must be nonnegative.')
 
     def get_mol(basis):
         ''' Build a PySCF molecule for orbital basis data. '''
@@ -212,6 +253,40 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
         ecorr_ss_ref = mc_ref.e_corr_ss
         ecorr_os_ref = mc_ref.e_corr_os
 
+    if min_exp_penalty:
+        from pygto.lib import softplus
+        # ``emins_ao[l]`` is the minimum AO exponent of channel l.
+        # ``emins[l]`` is the minimum exponent sum over AO channel pairs whose
+        # products can contribute to angular momentum l.
+        es = np.asarray([mol.bas_exp(ib).min() for ib in range(mol.nbas)])
+        ls_pool = np.asarray([mol.bas_angular(ib) for ib in range(mol.nbas)])
+        ls = np.sort(np.unique(ls_pool))
+        emins_ao = {l:es[ls_pool==l].min() for l in ls}
+        emins = {}
+        for i1,l1 in enumerate(ls):
+            for l2 in ls[i1:]:
+                e12 = emins_ao[l1] + emins_ao[l2]
+                for l in range(abs(l1-l2), l1+l2+1, 2):
+                    if (l not in emins) or (emins[l] > e12):
+                        emins[l] = e12
+
+        def get_penalty(spec):
+            ratio = np.asarray([
+                c.exponents[0]/emins[c.l]
+                for c in spec.channels if c.l in emins
+            ])
+
+            # The width is defined in log-ratio space. With width = 1e-2 and
+            # strength = 10, ratio_min = 0.45 and ratio = 0.46 give a penalty of
+            # approximately 1e-5.
+            width = 1e-2
+            ratio_min = min_exp_penalty_ratio
+            strength = min_exp_penalty_strength
+            violation = np.log(ratio_min) - np.log(ratio)
+            smooth_violation = width * softplus(violation / width)
+            penalty = strength * sum(smooth_violation**2)
+            return penalty
+
     def cost_func(spec, full_output=False):
         ''' Evaluate the density-fitting cost for an auxiliary `BasisSpec`.
 
@@ -224,10 +299,11 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
 
             Return:
                 cost (float):
-                    Maximum scaled error component.
+                    Maximum scaled density-fitting error plus the optional
+                    minimum-exponent penalty.
                 cost_details (list of tuple):
                     Returned only when `full_output=True`. Each tuple contains
-                    `(name, error, scaled_error)` for one component.
+                    `(name, error, scaled_error)` for one cost component.
         '''
         auxbasis = spec.get_pyscf_basis()
         if auxbasis_fix is not None:
@@ -315,6 +391,13 @@ def get_cost_func_auxopt(atm, aobasis, HF, mol_settings=None, config=None,
             scaled_error_vector = np.hstack((scaled_error_vector, scaled_error_vector_corr))
 
         error = max(scaled_error_vector)
+
+        if min_exp_penalty:
+            penalty = get_penalty(spec)
+            error += penalty
+            error_name.append('min-exp penalty')
+            error_vector = np.append(error_vector, penalty)
+            scaled_error_vector = np.append(scaled_error_vector, penalty)
 
         if full_output:
             error_details = [(name,err,serr) for name,err,serr in

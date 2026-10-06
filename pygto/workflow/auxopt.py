@@ -290,7 +290,7 @@ class AuxiliaryBasisOptimizationLegendre(lib.StreamObject):
         self.log_note('%s cost= %.3e  structure= %s  nauxao= %d' % (
             prefix, cost, spec.structure, spec.nao))
         for name,err,scaled_err in cost_details:
-            self.log_debug('%15s= %.3e  scaled= %.3e' % (name.ljust(15),err,scaled_err), indent=1)
+            self.log_debug('%20s= %.3e  scaled= %.3e' % (name.ljust(20),err,scaled_err), indent=1)
         self.log_debug('')
 
     def print_init(self):
